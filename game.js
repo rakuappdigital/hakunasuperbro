@@ -84,7 +84,7 @@ const player = {
   x: 0, y: GROUND_Y - 44, vx: 0, vy: 0,
   w: 30, h: 44, big: false, onGround: false,
   facing: 1, invincible: 0, dead: false,
-  respawnX: 0,
+  respawnX: 0, jumpsUsed: 0,
 };
 
 function playerRect() {
@@ -96,6 +96,7 @@ function respawnPlayer() {
   player.y = GROUND_Y - player.h;
   player.vx = 0; player.vy = 0;
   player.invincible = 2;
+  player.jumpsUsed = 0;
 }
 
 function growPlayer() {
@@ -254,7 +255,7 @@ function startGame() {
 
 setOverlay({
   title: "HAKUNA SUPERBRO",
-  text: "Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla",
+  text: "Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
   buttons: [{ label: "BAŞLA", onClick: startGame }],
 });
 
@@ -276,8 +277,11 @@ function update(dt) {
   if (left) { player.vx = -speed; player.facing = -1; }
   if (right) { player.vx = speed; player.facing = 1; }
 
-  if (jumpKey && player.onGround && !jumpHeld) {
-    player.vy = player.big ? BIG_JUMP_V : JUMP_V;
+  if (jumpKey && !jumpHeld && player.jumpsUsed < 2) {
+    const base = player.big ? BIG_JUMP_V : JUMP_V;
+    // ikinci (çift) zıplama biraz daha güçlü
+    player.vy = player.jumpsUsed === 0 ? base : base * 1.12;
+    player.jumpsUsed++;
     player.onGround = false;
   }
   jumpHeld = jumpKey;
@@ -396,6 +400,7 @@ function resolveCollisions(axis) {
         player.y = s.y - player.h;
         player.vy = 0;
         player.onGround = true;
+        player.jumpsUsed = 0;
       } else if (player.vy < 0) {
         player.y = s.y + s.h;
         player.vy = 0;
@@ -409,32 +414,75 @@ function resolveCollisions(axis) {
 function drawBackground() {
   // gökyüzü
   const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, "#5fb8ea");
-  sky.addColorStop(0.6, "#a9e0f5");
-  sky.addColorStop(1, "#dff3ff");
+  sky.addColorStop(0, "#4a9fdc");
+  sky.addColorStop(0.55, "#8fcdf0");
+  sky.addColorStop(1, "#e8f6ff");
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, H);
 
-  // güneş
+  // güneş + hafif ışıma
+  ctx.fillStyle = "rgba(255,246,190,0.35)";
+  ctx.beginPath();
+  ctx.arc(W - 100, 90, 70, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = "#fff3b0";
   ctx.beginPath();
-  ctx.arc(W - 100, 90, 42, 0, Math.PI * 2);
+  ctx.arc(W - 100, 90, 36, 0, Math.PI * 2);
   ctx.fill();
 
-  // uzak yaka siluetleri (Anadolu yakası binaları), paralaks
+  // bulutlar (paralaks)
+  const cloudX = -camX * 0.08;
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  for (let i = 0; i < 10; i++) {
+    const bx = ((i * 260 + cloudX) % (W + 400)) - 200;
+    const by = 60 + ((i * 53) % 90);
+    drawCloud(bx, by, 0.7 + (i % 3) * 0.2);
+  }
+
+  // martılar
+  ctx.strokeStyle = "rgba(60,60,60,0.6)";
+  ctx.lineWidth = 2;
+  const gullX = -camX * 0.2;
+  for (let i = 0; i < 6; i++) {
+    const bx = ((i * 340 + gullX) % (W + 300)) - 150;
+    const by = 130 + ((i * 41) % 60);
+    ctx.beginPath();
+    ctx.moveTo(bx - 8, by);
+    ctx.quadraticCurveTo(bx - 3, by - 6, bx, by);
+    ctx.quadraticCurveTo(bx + 3, by - 6, bx + 8, by);
+    ctx.stroke();
+  }
+
+  // uzak yaka siluetleri (Anadolu yakası apartmanları), paralaks
   const parX = -camX * 0.15;
-  ctx.fillStyle = "#8fb9d6";
+  const buildingColors = ["#8fb9d6", "#9cc3da", "#7fa9c9", "#a6cbe0"];
   for (let i = 0; i < 40; i++) {
     const bx = (i * 140 + parX) % (W + 300) - 150;
-    const bh = 40 + ((i * 37) % 70);
+    const bh = 40 + ((i * 37) % 90);
+    ctx.fillStyle = buildingColors[i % buildingColors.length];
     ctx.fillRect(bx, GROUND_Y - 40 - bh, 60, bh);
+    // pencereler
+    ctx.fillStyle = "rgba(255, 244, 180, 0.55)";
+    for (let wy = GROUND_Y - 40 - bh + 8; wy < GROUND_Y - 46; wy += 14) {
+      for (let wx = bx + 6; wx < bx + 54; wx += 14) {
+        if ((wx + wy) % 27 < 14) ctx.fillRect(wx, wy, 6, 8);
+      }
+    }
   }
 
   // deniz
   const seaY = GROUND_Y + 6;
-  ctx.fillStyle = "#1c6fa8";
+  const seaGrad = ctx.createLinearGradient(0, seaY, 0, H);
+  seaGrad.addColorStop(0, "#2f86bb");
+  seaGrad.addColorStop(1, "#124f7a");
+  ctx.fillStyle = seaGrad;
   ctx.fillRect(0, seaY, W, H - seaY);
-  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+
+  // uzakta vapur
+  const ferryX = (900 - camX * 0.35) % (LEVEL_END + 900) - 200;
+  drawFerry(ferryX, seaY + 18);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
   ctx.lineWidth = 2;
   const waveOff = (-camX * 0.4) % 40;
   for (let y = seaY + 14; y < H; y += 22) {
@@ -447,19 +495,178 @@ function drawBackground() {
   }
 }
 
+function drawCloud(x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.beginPath();
+  ctx.arc(0, 0, 16, 0, Math.PI * 2);
+  ctx.arc(18, -6, 12, 0, Math.PI * 2);
+  ctx.arc(-16, -4, 11, 0, Math.PI * 2);
+  ctx.arc(6, 4, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFerry(x, y) {
+  if (x < -220 || x > W + 220) return;
+  ctx.fillStyle = "#e6e6e6";
+  ctx.fillRect(x, y, 70, 14);
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(x, y + 12, 70, 4);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x + 14, y - 12, 20, 12);
+  ctx.fillStyle = "#3a3a3a";
+  ctx.fillRect(x + 20, y - 22, 5, 12);
+}
+
 function drawGround() {
   for (const g of groundSegs) {
     const x1 = g.x1 - camX, x2 = g.x2 - camX;
     if (x2 < 0 || x1 > W) continue;
-    ctx.fillStyle = "#d9c48a";
-    ctx.fillRect(x1, GROUND_Y, x2 - x1, H - GROUND_Y);
-    ctx.fillStyle = "#3fae52";
-    ctx.fillRect(x1, GROUND_Y, x2 - x1, 12);
-    ctx.fillStyle = "#2f8f40";
-    for (let x = x1; x < x2; x += 18) {
-      ctx.fillRect(x, GROUND_Y, 4, 10);
+    const w = x2 - x1;
+
+    // beton yürüyüş yolu (Maltepe/Bostancı sahil yolu tarzı gri zemin)
+    ctx.fillStyle = "#aeb4b8";
+    ctx.fillRect(x1, GROUND_Y, w, H - GROUND_Y);
+
+    // kırmızı koşu/bisiklet şeridi (üst kısım)
+    ctx.fillStyle = "#a8543c";
+    ctx.fillRect(x1, GROUND_Y, w, 16);
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath();
+    ctx.moveTo(x1, GROUND_Y + 8);
+    ctx.lineTo(x2, GROUND_Y + 8);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // beton kaplama derzleri
+    ctx.strokeStyle = "rgba(90,95,98,0.6)";
+    ctx.lineWidth = 1;
+    for (let x = x1; x < x2; x += 46) {
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y + 16);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+
+    // deniz kenarı korkuluk (beyaz-mavi parapet)
+    ctx.fillStyle = "#e8ecee";
+    ctx.fillRect(x1, GROUND_Y - 6, w, 6);
+    ctx.fillStyle = "#0033a0";
+    for (let x = x1; x < x2; x += 34) {
+      ctx.fillRect(x, GROUND_Y - 6, 5, 6);
     }
   }
+}
+
+// ---------- Yerel dekor: büfe / beltur / dürümcü / tofaş ----------
+const propTypes = ["bufe", "tofas", "durum", "beltur"];
+const props = [];
+for (let x = 260, i = 0; x < LEVEL_END - 400; x += 470, i++) {
+  props.push({ x, type: propTypes[i % propTypes.length] });
+}
+
+function drawProps() {
+  for (const p of props) {
+    const x = p.x - camX;
+    if (x < -90 || x > W + 90) continue;
+    if (p.type === "bufe") drawBufe(x);
+    else if (p.type === "beltur") drawBeltur(x);
+    else if (p.type === "durum") drawDurumcu(x);
+    else if (p.type === "tofas") drawTofas(x);
+  }
+}
+
+function drawBufe(x) {
+  const baseY = GROUND_Y;
+  ctx.fillStyle = "#e6e2d3";
+  ctx.fillRect(x - 20, baseY - 46, 40, 46);
+  ctx.fillStyle = "#2f8f40";
+  ctx.fillRect(x - 26, baseY - 58, 52, 14);
+  ctx.fillStyle = "#7fd1e0";
+  ctx.fillRect(x - 15, baseY - 40, 30, 16);
+  ctx.fillStyle = "#c0392b";
+  ctx.font = "bold 9px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("BÜFE", x, baseY - 16);
+  ctx.fillStyle = "#3a3a3a";
+  ctx.fillRect(x - 6, baseY - 8, 4, 8);
+  ctx.fillRect(x + 4, baseY - 8, 4, 8);
+}
+
+function drawBeltur(x) {
+  const baseY = GROUND_Y;
+  ctx.fillStyle = "#0e8a8a";
+  ctx.fillRect(x - 24, baseY - 50, 48, 50);
+  ctx.beginPath();
+  ctx.fillStyle = "#0a6e6e";
+  ctx.arc(x, baseY - 50, 24, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 9px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("BELTUR", x, baseY - 22);
+  ctx.fillStyle = "#dff3f3";
+  ctx.fillRect(x - 16, baseY - 14, 32, 14);
+}
+
+function drawDurumcu(x) {
+  const baseY = GROUND_Y;
+  // tekerlekler
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(x - 16, baseY - 4, 6, 0, Math.PI * 2);
+  ctx.arc(x + 16, baseY - 4, 6, 0, Math.PI * 2);
+  ctx.fill();
+  // gövde
+  ctx.fillStyle = "#d94f3d";
+  ctx.fillRect(x - 24, baseY - 34, 48, 24);
+  ctx.fillStyle = "#f4d35e";
+  ctx.fillRect(x - 24, baseY - 34, 48, 6);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 8px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("DÜRÜM", x, baseY - 18);
+  // şemsiye
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.moveTo(x - 30, baseY - 40);
+  ctx.lineTo(x + 30, baseY - 40);
+  ctx.lineTo(x, baseY - 64);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = "#888";
+  ctx.fillRect(x - 1, baseY - 64, 2, 24);
+}
+
+function drawTofas(x) {
+  const baseY = GROUND_Y;
+  ctx.fillStyle = "#e8d9a0";
+  ctx.fillRect(x - 34, baseY - 22, 68, 16);
+  ctx.fillStyle = "#d8c88a";
+  ctx.beginPath();
+  ctx.moveTo(x - 22, baseY - 22);
+  ctx.lineTo(x - 14, baseY - 36);
+  ctx.lineTo(x + 16, baseY - 36);
+  ctx.lineTo(x + 24, baseY - 22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#bcd6e0";
+  ctx.fillRect(x - 12, baseY - 34, 12, 10);
+  ctx.fillRect(x + 2, baseY - 34, 12, 10);
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(x - 20, baseY - 4, 7, 0, Math.PI * 2);
+  ctx.arc(x + 18, baseY - 4, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#8a1d1d";
+  ctx.fillRect(x - 34, baseY - 10, 68, 4);
 }
 
 function drawPlatforms() {
@@ -683,6 +890,7 @@ function drawPlayer() {
 function draw() {
   drawBackground();
   drawGround();
+  drawProps();
   for (const s of signs) drawSign(s.x, s.text);
   drawPlatforms();
   for (const b of boxes) drawBox(b);
