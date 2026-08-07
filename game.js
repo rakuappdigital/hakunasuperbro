@@ -168,7 +168,7 @@ let winTimer = 0;
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlay-title");
 const overlayText = document.getElementById("overlay-text");
-const startBtn = document.getElementById("start-btn");
+const overlayButtons = document.getElementById("overlay-buttons");
 const scoreEl = document.getElementById("score");
 const livesEl = document.getElementById("lives");
 
@@ -177,7 +177,11 @@ function loseLife() {
   updateHud();
   if (lives <= 0) {
     gameState = "dead";
-    showOverlay("KAYBETTİN", "Sahil senden zorluymuş. Tekrar dene!", "TEKRAR DENE");
+    setOverlay({
+      title: "KAYBETTİN",
+      text: "Sahil senden zorluymuş. Tekrar dene!",
+      buttons: [{ label: "TEKRAR DENE", onClick: startGame }],
+    });
   } else {
     respawnPlayer();
   }
@@ -188,11 +192,49 @@ function updateHud() {
   livesEl.textContent = "CAN: " + lives;
 }
 
-function showOverlay(title, text, btnLabel) {
+function setOverlay({ title = "", text = "", buttons = [], marioFont = false }) {
   overlayTitle.textContent = title;
+  overlayTitle.classList.toggle("mario-font", marioFont);
   overlayText.innerHTML = text;
-  startBtn.textContent = btnLabel;
+  overlayText.classList.toggle("mario-font", marioFont);
+  overlayButtons.innerHTML = "";
+  for (const b of buttons) {
+    const btn = document.createElement("button");
+    btn.className = "overlay-btn" + (b.danger ? " danger" : "");
+    btn.textContent = b.label;
+    btn.addEventListener("click", b.onClick);
+    overlayButtons.appendChild(btn);
+  }
   overlay.classList.remove("hidden");
+}
+
+function showWinStep1() {
+  setOverlay({
+    title: "TEBRİKLER!",
+    text: "BU YOLU GELENE KADAR EBEM S*KİLDİ",
+    marioFont: true,
+    buttons: [{ label: "DEVAM ET", onClick: showWinStep2 }],
+  });
+}
+
+function showWinStep2() {
+  setOverlay({
+    title: "",
+    text: "BİRA İÇMEYE GİDELİM Mİ?",
+    marioFont: true,
+    buttons: [
+      { label: "TAMAM", onClick: () => { window.location.href = "https://ayarlayici.vercel.app"; } },
+      { label: "HAYIR", onClick: showWinStep3, danger: true },
+    ],
+  });
+}
+
+function showWinStep3() {
+  setOverlay({
+    title: "",
+    text: "",
+    buttons: [{ label: "TEKRAR OYNA", onClick: startGame }],
+  });
 }
 
 function startGame() {
@@ -204,12 +246,17 @@ function startGame() {
   items = [];
   resetEnemies();
   camX = 0;
+  winTimer = 0;
   gameState = "playing";
   updateHud();
   overlay.classList.add("hidden");
 }
 
-startBtn.addEventListener("click", startGame);
+setOverlay({
+  title: "HAKUNA SUPERBRO",
+  text: "Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla",
+  buttons: [{ label: "BAŞLA", onClick: startGame }],
+});
 
 // ---------- Güncelleme ----------
 let lastTime = performance.now();
@@ -653,8 +700,8 @@ function loop(t) {
   if (gameState === "win") {
     winTimer += dt;
     if (winTimer > 2.4) {
-      showOverlay("KAZANDIN! 🏁", "Bostancı'dan Tuzla Marina'ya ulaştın!<br/>Skor: " + score, "TEKRAR OYNA");
       gameState = "menu";
+      showWinStep1();
     }
   }
 

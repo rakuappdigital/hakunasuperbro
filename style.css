@@ -92,7 +92,14 @@ canvas#game {
   line-height: 1.5;
 }
 
-#start-btn {
+#overlay-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.overlay-btn {
   background: #25d366;
   color: #063;
   border: none;
@@ -102,7 +109,20 @@ canvas#game {
   border-radius: 6px;
   cursor: pointer;
 }
-#start-btn:hover { background: #1eb857; }
+.overlay-btn:hover { background: #1eb857; }
+.overlay-btn.danger { background: #e74c3c; color: #fff; }
+.overlay-btn.danger:hover { background: #c0392b; }
+
+.mario-font {
+  font-family: "Press Start 2P", monospace;
+  line-height: 1.8;
+}
+#overlay-text.mario-font {
+  font-size: 13px;
+}
+#overlay-title.mario-font {
+  font-size: 20px;
+}
 
 #touch-controls {
   position: absolute;
