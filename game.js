@@ -15,6 +15,7 @@ const BIG_JUMP_V = -700;
 // ---------- Seviye verisi (prosedürel, orijinalin 2 katı uzunlukta) ----------
 const LEVEL_END = 13200;
 const GOAL_X = 13000;
+const WOMAN_X = GOAL_X - 250;
 
 // Zemin parçaları (aralarında çukurlar var) — çukur genişlikleri orijinaldeki
 // gibi zıplanabilir kalsın diye sabit bir örüntüyle üretiliyor.
@@ -29,6 +30,16 @@ const groundSegs = [];
     groundSegs.push({ x1: x, x2: x + segLen });
     x += segLen + gapLens[i % gapLens.length];
     i++;
+  }
+
+  // Hedef (Tuzla Marina) ve kadının durduğu alanın altında kesinlikle
+  // zemin olsun — üretim rastgele bir çukur bırakmış olabilir.
+  for (let s = 0; s < groundSegs.length; s++) {
+    if (groundSegs[s].x2 >= WOMAN_X - 300 && groundSegs[s].x1 <= GOAL_X) {
+      groundSegs[s].x2 = Math.max(groundSegs[s].x2, LEVEL_END + 300);
+      groundSegs.length = s + 1;
+      break;
+    }
   }
 }
 
@@ -111,7 +122,7 @@ const player = {
   w: BASE_W, h: BASE_H, big: false, onGround: false,
   facing: 1, invincible: 0, dead: false,
   respawnX: 0, jumpsUsed: 0, animT: 0,
-  riding: false, rideTimer: 0, glow: 0,
+  riding: false, rideTimer: 0, glow: 0, beerTimer: 0,
 };
 
 function playerRect() {
@@ -127,6 +138,9 @@ function respawnPlayer() {
 }
 
 function growPlayer() {
+  // Efes etkisi 3 saniye sürer; tekrar biraya dokununca süre yenilenir
+  player.beerTimer = 3;
+  player.glow = 1.5;
   if (player.big) return;
   player.big = true;
   const oldH = player.h;
@@ -136,15 +150,21 @@ function growPlayer() {
   player.glow = 3.5;
 }
 
+function revertGrowth() {
+  if (!player.big) return;
+  player.big = false;
+  const oldH = player.h;
+  player.h = BASE_H;
+  player.y += (oldH - player.h);
+  player.w = BASE_W;
+  player.glow = 0;
+  player.beerTimer = 0;
+}
+
 function shrinkPlayer() {
   if (player.big) {
-    player.big = false;
-    const oldH = player.h;
-    player.h = BASE_H;
-    player.y += (oldH - player.h);
-    player.w = BASE_W;
+    revertGrowth();
     player.invincible = 2;
-    player.glow = 0;
   } else {
     loseLife();
   }
@@ -194,6 +214,8 @@ let score = 0, lives = 3;
 let gameState = "menu"; // menu | playing | win | dead
 let jumpHeld = false;
 let winTimer = 0;
+let dialogueState = "none"; // none | line1 | line2 | done
+let dialogueTimer = 0;
 
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlay-title");
@@ -275,7 +297,8 @@ function startGame() {
   score = 0; lives = 3;
   player.big = false; player.w = BASE_W; player.h = BASE_H;
   player.respawnX = 0;
-  player.riding = false; player.rideTimer = 0; player.glow = 0;
+  player.riding = false; player.rideTimer = 0; player.glow = 0; player.beerTimer = 0;
+  dialogueState = "none"; dialogueTimer = 0;
   respawnPlayer();
   boxes.forEach(b => b.used = false);
   moto.used = false;
@@ -304,9 +327,21 @@ function update(dt) {
   // checkpoint ilerlemesi
   if (player.x - 40 > player.respawnX) player.respawnX = Math.max(player.respawnX, Math.floor(player.x / 400) * 400);
 
-  const left = keys["ArrowLeft"] || keys["KeyA"] || touchLeft;
-  const right = keys["ArrowRight"] || keys["KeyD"] || touchRight;
-  const jumpKey = keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump;
+  // Kadınla karşılaşma diyaloğu
+  if (dialogueState === "none" && player.x + player.w >= WOMAN_X - 15) {
+    dialogueState = "line1";
+    dialogueTimer = 0;
+  }
+  if (dialogueState === "line1" || dialogueState === "line2") {
+    dialogueTimer += dt;
+    if (dialogueState === "line1" && dialogueTimer > 2.6) { dialogueState = "line2"; dialogueTimer = 0; }
+    else if (dialogueState === "line2" && dialogueTimer > 2.6) { dialogueState = "done"; }
+  }
+  const dialogueFreeze = dialogueState === "line1" || dialogueState === "line2";
+
+  const left = !dialogueFreeze && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
+  const right = !dialogueFreeze && (keys["ArrowRight"] || keys["KeyD"] || touchRight);
+  const jumpKey = !dialogueFreeze && (keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump);
   const running = keys["ShiftLeft"] || keys["ShiftRight"];
 
   const rideMult = player.riding ? 2.3 : 1;
@@ -326,6 +361,10 @@ function update(dt) {
     if (player.rideTimer <= 0) player.riding = false;
   }
   if (player.glow > 0) player.glow -= dt;
+  if (player.big && player.beerTimer > 0) {
+    player.beerTimer -= dt;
+    if (player.beerTimer <= 0) revertGrowth();
+  }
 
   if (jumpKey && !jumpHeld && player.jumpsUsed < 2) {
     const base = player.big ? BIG_JUMP_V : JUMP_V;
@@ -943,6 +982,82 @@ function drawEnemy(en) {
   ctx.fillRect(x + en.w / 2 - 6, en.y + 2 + bob, 12, 4);
 }
 
+function drawMotoHint(x, y) {
+  const bob = Math.sin(performance.now() / 220) * 4;
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "center";
+  const text = "Motora binebilirsin";
+  const tw = ctx.measureText(text).width;
+  const boxW = tw + 20, boxH = 24;
+  const boxX = x - boxW / 2, boxY = y - boxH - 6;
+
+  ctx.fillStyle = "rgba(0,0,0,0.78)";
+  roundRect(boxX, boxY, boxW, boxH, 6);
+  ctx.fill();
+  ctx.strokeStyle = "#ffcc00";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.fillText(text, x, boxY + 16);
+
+  // zıplayan aşağı ok
+  ctx.fillStyle = "#ffcc00";
+  ctx.beginPath();
+  ctx.moveTo(x - 7, boxY + boxH + 3 + bob);
+  ctx.lineTo(x + 7, boxY + boxH + 3 + bob);
+  ctx.lineTo(x, boxY + boxH + 14 + bob);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawSpeechBubble(cx, tailY, text) {
+  ctx.font = "bold 11px Trebuchet MS";
+  const maxWidth = 190;
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+
+  const lineH = 15;
+  let widest = 0;
+  for (const l of lines) widest = Math.max(widest, ctx.measureText(l).width);
+  const boxW = widest + 24;
+  const boxH = lines.length * lineH + 16;
+  const boxX = cx - boxW / 2;
+  const boxY = tailY - boxH - 14;
+
+  ctx.fillStyle = "rgba(255,255,255,0.96)";
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2;
+  roundRect(boxX, boxY, boxW, boxH, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx - 8, boxY + boxH);
+  ctx.lineTo(cx + 8, boxY + boxH);
+  ctx.lineTo(cx, boxY + boxH + 13);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(255,255,255,0.96)";
+  ctx.fill();
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = "#111";
+  ctx.textAlign = "center";
+  lines.forEach((l, i) => ctx.fillText(l, cx, boxY + 18 + i * lineH));
+}
+
 function drawMotoIcon(x, y, scale) {
   ctx.save();
   ctx.translate(x, y);
@@ -1280,6 +1395,9 @@ function draw() {
   if (!moto.used) {
     const mx = moto.x - camX;
     if (mx > -80 && mx < W + 80) drawMotoIcon(mx + moto.w / 2, GROUND_Y - 2, 1);
+    if (Math.abs(player.x - moto.x) < 220) {
+      drawMotoHint(mx + moto.w / 2, GROUND_Y - moto.h - 6);
+    }
   }
   for (const en of enemies) if (!en.dead) drawEnemy(en);
   for (const it of items) drawItem(it);
@@ -1289,6 +1407,12 @@ function draw() {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
   }
   drawPlayer();
+
+  if (dialogueState === "line1") {
+    drawSpeechBubble(WOMAN_X - camX, GROUND_Y - 88, "Buraya kadar gelmen büyük başarı");
+  } else if (dialogueState === "line2") {
+    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Ne demek ama ebem s*kildi gerçekten...");
+  }
 }
 
 // ---------- Ana döngü ----------
