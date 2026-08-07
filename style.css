@@ -126,7 +126,7 @@ canvas#game {
 
 #touch-controls {
   position: absolute;
-  bottom: 16px;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   left: 0;
   right: 0;
   display: none;

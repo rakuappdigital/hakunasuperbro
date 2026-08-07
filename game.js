@@ -947,32 +947,92 @@ function drawMotoIcon(x, y, scale) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
+
+  // gölge
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.beginPath();
-  ctx.ellipse(0, 15, 26, 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 17, 28, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#222";
+
+  // tekerlekler (siyah lastik + gri jant)
+  for (const wx of [-18, 17]) {
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.arc(wx, 12, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#7a7a7a";
+    ctx.beginPath();
+    ctx.arc(wx, 12, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#9a9a9a";
+    ctx.lineWidth = 1;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 3) {
+      ctx.beginPath();
+      ctx.moveTo(wx, 12);
+      ctx.lineTo(wx + Math.cos(a) * 4.5, 12 + Math.sin(a) * 4.5);
+      ctx.stroke();
+    }
+  }
+
+  // egzoz (krom)
+  ctx.fillStyle = "#c3c8cc";
+  ctx.fillRect(-28, 6, 12, 4);
+  ctx.fillStyle = "#8f9498";
+  ctx.fillRect(-28, 9, 12, 1.5);
+
+  // şasi / gövde (siyah)
+  ctx.fillStyle = "#151515";
   ctx.beginPath();
-  ctx.arc(-17, 12, 9, 0, Math.PI * 2);
-  ctx.arc(17, 12, 9, 0, Math.PI * 2);
+  ctx.moveTo(-20, 9);
+  ctx.lineTo(-9, -6);
+  ctx.lineTo(7, -8);
+  ctx.lineTo(17, 7);
+  ctx.lineTo(-6, 9);
+  ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#555";
+
+  // yakıt deposu
+  ctx.fillStyle = "#1c1c1c";
   ctx.beginPath();
-  ctx.arc(-17, 12, 4, 0, Math.PI * 2);
-  ctx.arc(17, 12, 4, 0, Math.PI * 2);
+  ctx.ellipse(-4, -8, 10, 6, -0.15, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#d94f3d";
-  ctx.fillRect(-22, -2, 44, 12);
-  ctx.fillStyle = "#a8342a";
-  ctx.fillRect(-22, 8, 44, 4);
-  ctx.fillStyle = "#333";
-  ctx.fillRect(10, -16, 4, 14);
-  ctx.strokeStyle = "#222";
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(-6, -10, 4, 2, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // sele
+  ctx.fillStyle = "#0d0d0d";
+  ctx.fillRect(2, -11, 17, 5);
+  ctx.fillStyle = "#2a2a2a";
+  ctx.fillRect(2, -11, 17, 1.5);
+
+  // gidon
+  ctx.strokeStyle = "#1a1a1a";
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(6, -16);
-  ctx.lineTo(20, -16);
+  ctx.moveTo(15, -6);
+  ctx.lineTo(15, -18);
   ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(8, -19);
+  ctx.lineTo(21, -19);
+  ctx.stroke();
+  ctx.fillStyle = "#111";
+  ctx.beginPath();
+  ctx.arc(8, -19, 2, 0, Math.PI * 2);
+  ctx.arc(21, -19, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ön far
+  ctx.fillStyle = "#ffe07a";
+  ctx.beginPath();
+  ctx.arc(20, -5, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
   ctx.restore();
 }
 
