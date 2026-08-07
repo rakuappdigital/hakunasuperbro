@@ -12,57 +12,80 @@ const RUN_SPEED = 380;
 const JUMP_V = -640;
 const BIG_JUMP_V = -700;
 
-// ---------- Seviye verisi ----------
-// Zemin parçaları (aralarında çukurlar var)
-const groundSegs = [
-  { x1: -200, x2: 900 },
-  { x1: 980, x2: 1700 },
-  { x1: 1820, x2: 2600 },
-  { x1: 2700, x2: 3500 },
-  { x1: 3620, x2: 4500 },
-  { x1: 4600, x2: 5500 },
-  { x1: 5600, x2: 6600 },
+// ---------- Seviye verisi (prosedürel, orijinalin 2 katı uzunlukta) ----------
+const LEVEL_END = 13200;
+const GOAL_X = 13000;
+
+// Zemin parçaları (aralarında çukurlar var) — çukur genişlikleri orijinaldeki
+// gibi zıplanabilir kalsın diye sabit bir örüntüyle üretiliyor.
+const groundSegs = [];
+{
+  const segLens = [700, 820, 680, 900, 760, 840, 720, 880, 700, 800, 760, 820];
+  const gapLens = [90, 120, 100, 140, 110, 95, 130, 105, 115, 100, 125, 90];
+  let x = -200;
+  let i = 0;
+  while (x < LEVEL_END + 300) {
+    const segLen = segLens[i % segLens.length];
+    groundSegs.push({ x1: x, x2: x + segLen });
+    x += segLen + gapLens[i % gapLens.length];
+    i++;
+  }
+}
+
+// Platformlar: her uzun zemin parçasının üstünde bir tane
+const platforms = [];
+for (const seg of groundSegs) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 500) continue;
+  const px = seg.x1 + segLen * 0.4;
+  const py = GROUND_Y - 100 - ((Math.abs(seg.x1) * 37) % 130);
+  const pw = 120 + ((Math.abs(seg.x1) * 13) % 60);
+  platforms.push({ x: px, y: py, w: pw, h: 22 });
+}
+
+// Tabelalar: Bostancı -> Tuzla sırasıyla, tüm yola eşit yayılmış
+const signTexts = ["BOSTANCI", "MALTEPE", "KARTAL", "PENDİK", "TUZLA"];
+const signs = [];
+{
+  const usable = groundSegs.filter(s => s.x1 > 0 && s.x1 < GOAL_X - 500 && s.x2 - s.x1 > 300);
+  for (let i = 0; i < signTexts.length; i++) {
+    const idx = Math.min(usable.length - 1, Math.floor(((i + 0.5) / signTexts.length) * usable.length));
+    signs.push({ x: usable[idx].x1 + 130, text: signTexts[i] });
+  }
+}
+
+// WhatsApp kutuları: platformların bir kısmının üstünde
+const boxes = platforms
+  .filter((_, i) => i % 2 === 0)
+  .map(p => ({ x: p.x + p.w / 2 - 20, y: p.y - 90, w: 40, h: 40, used: false }));
+
+// Düşmanlar: yeterince uzun her zemin parçasında biri, hedefe yakın alan boş
+const enemyDefs = [];
+for (const seg of groundSegs) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 450 || seg.x1 > GOAL_X - 700) continue;
+  const margin = 70;
+  enemyDefs.push({ x: seg.x1 + segLen * 0.3, x1: seg.x1 + margin, x2: seg.x2 - margin });
+}
+
+// Arka plan dönüm noktaları: ikiz kuleler, 5'li site, oturma alanları
+const landmarks = [
+  { x: LEVEL_END * 0.10, type: "twin_towers" },
+  { x: LEVEL_END * 0.24, type: "seating_area" },
+  { x: LEVEL_END * 0.38, type: "five_twins" },
+  { x: LEVEL_END * 0.52, type: "twin_towers" },
+  { x: LEVEL_END * 0.66, type: "seating_area" },
+  { x: LEVEL_END * 0.80, type: "five_twins" },
+  { x: LEVEL_END * 0.90, type: "twin_towers" },
 ];
 
-const platforms = [
-  { x: 620, y: 300, w: 140, h: 22 },
-  { x: 1150, y: 330, w: 120, h: 22 },
-  { x: 1980, y: 280, w: 160, h: 22 },
-  { x: 2820, y: 320, w: 140, h: 22 },
-  { x: 3080, y: 250, w: 120, h: 22 },
-  { x: 3750, y: 300, w: 160, h: 22 },
-  { x: 4700, y: 280, w: 140, h: 22 },
-  { x: 5750, y: 320, w: 160, h: 22 },
-];
-
-const signs = [
-  { x: 480, text: "BOSTANCI" },
-  { x: 1550, text: "MALTEPE" },
-  { x: 2650, text: "KARTAL" },
-  { x: 3950, text: "PENDİK" },
-  { x: 5250, text: "TUZLA" },
-];
-
-const boxes = [
-  { x: 660, y: 250, used: false },
-  { x: 2020, y: 230, used: false },
-  { x: 3110, y: 200, used: false },
-  { x: 4740, y: 230, used: false },
-  { x: 5790, y: 270, used: false },
-].map(b => ({ ...b, w: 40, h: 40 }));
-
-const enemyDefs = [
-  { x: 700, x1: 600, x2: 850 },
-  { x: 1250, x1: 1150, x2: 1650 },
-  { x: 2100, x1: 1900, x2: 2500 },
-  { x: 3000, x1: 2800, x2: 3400 },
-  { x: 3900, x1: 3700, x2: 4400 },
-  { x: 4900, x1: 4700, x2: 5400 },
-  { x: 5900, x1: 5700, x2: 6400 },
-];
-
-const LEVEL_END = 6600;
-const GOAL_X = 6500;
+// Motosiklet: tek seferlik, 10 saniyeliğine hız artışı verir
+const moto = (() => {
+  const targetX = LEVEL_END * 0.2;
+  const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) || groundSegs[3];
+  const x = Math.max(seg.x1 + 80, Math.min(targetX, seg.x2 - 80));
+  return { x, w: 50, h: 28, used: false };
+})();
 
 // ---------- Yardımcılar ----------
 function rectsOverlap(a, b) {
@@ -80,11 +103,15 @@ function solidRectsAt() {
 const solids = solidRectsAt();
 
 // ---------- Oyuncu ----------
+const BASE_W = 22, BASE_H = 34;
+const GROW_FACTOR = 1.3;
+
 const player = {
-  x: 0, y: GROUND_Y - 44, vx: 0, vy: 0,
-  w: 30, h: 44, big: false, onGround: false,
+  x: 0, y: GROUND_Y - BASE_H, vx: 0, vy: 0,
+  w: BASE_W, h: BASE_H, big: false, onGround: false,
   facing: 1, invincible: 0, dead: false,
-  respawnX: 0, jumpsUsed: 0,
+  respawnX: 0, jumpsUsed: 0, animT: 0,
+  riding: false, rideTimer: 0, glow: 0,
 };
 
 function playerRect() {
@@ -102,20 +129,22 @@ function respawnPlayer() {
 function growPlayer() {
   if (player.big) return;
   player.big = true;
-  player.w = 36;
   const oldH = player.h;
-  player.h = 64;
+  player.w = Math.round(BASE_W * GROW_FACTOR);
+  player.h = Math.round(BASE_H * GROW_FACTOR);
   player.y -= (player.h - oldH);
+  player.glow = 3.5;
 }
 
 function shrinkPlayer() {
   if (player.big) {
     player.big = false;
     const oldH = player.h;
-    player.h = 44;
+    player.h = BASE_H;
     player.y += (oldH - player.h);
-    player.w = 30;
+    player.w = BASE_W;
     player.invincible = 2;
+    player.glow = 0;
   } else {
     loseLife();
   }
@@ -125,8 +154,8 @@ function shrinkPlayer() {
 let enemies = [];
 function resetEnemies() {
   enemies = enemyDefs.map(e => ({
-    x: e.x, x1: e.x1, x2: e.x2, y: GROUND_Y - 34,
-    w: 26, h: 34, vx: 60, dead: false, walkT: Math.random() * 10,
+    x: e.x, x1: e.x1, x2: e.x2, y: GROUND_Y - 28,
+    w: 20, h: 28, vx: 60, dead: false, walkT: Math.random() * 10,
   }));
 }
 resetEnemies();
@@ -172,6 +201,7 @@ const overlayText = document.getElementById("overlay-text");
 const overlayButtons = document.getElementById("overlay-buttons");
 const scoreEl = document.getElementById("score");
 const livesEl = document.getElementById("lives");
+const motoEl = document.getElementById("moto");
 
 function loseLife() {
   lives -= 1;
@@ -238,12 +268,17 @@ function showWinStep3() {
   });
 }
 
+const bgMusic = new Audio("mario.mp3");
+bgMusic.loop = true;
+
 function startGame() {
   score = 0; lives = 3;
-  player.big = false; player.w = 30; player.h = 44;
+  player.big = false; player.w = BASE_W; player.h = BASE_H;
   player.respawnX = 0;
+  player.riding = false; player.rideTimer = 0; player.glow = 0;
   respawnPlayer();
   boxes.forEach(b => b.used = false);
+  moto.used = false;
   items = [];
   resetEnemies();
   camX = 0;
@@ -251,10 +286,12 @@ function startGame() {
   gameState = "playing";
   updateHud();
   overlay.classList.add("hidden");
+  bgMusic.currentTime = 0;
+  bgMusic.play().catch(() => {});
 }
 
 setOverlay({
-  title: "HAKUNA SUPERBRO",
+  title: "HAZIR MISIN?",
   text: "Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
   buttons: [{ label: "BAŞLA", onClick: startGame }],
 });
@@ -272,10 +309,23 @@ function update(dt) {
   const jumpKey = keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump;
   const running = keys["ShiftLeft"] || keys["ShiftRight"];
 
-  const speed = running ? RUN_SPEED : MOVE_SPEED;
+  const rideMult = player.riding ? 2.3 : 1;
+  const speed = (running ? RUN_SPEED : MOVE_SPEED) * rideMult;
   player.vx = 0;
   if (left) { player.vx = -speed; player.facing = -1; }
   if (right) { player.vx = speed; player.facing = 1; }
+
+  if (Math.abs(player.vx) > 5 && player.onGround) {
+    player.animT += dt * (player.riding ? 14 : 7 + Math.abs(player.vx) / 90);
+  } else if (player.onGround) {
+    player.animT += dt * 1.4;
+  }
+
+  if (player.riding) {
+    player.rideTimer -= dt;
+    if (player.rideTimer <= 0) player.riding = false;
+  }
+  if (player.glow > 0) player.glow -= dt;
 
   if (jumpKey && !jumpHeld && player.jumpsUsed < 2) {
     const base = player.big ? BIG_JUMP_V : JUMP_V;
@@ -316,6 +366,17 @@ function update(dt) {
     }
   }
 
+  // Motosiklete binme
+  if (!moto.used) {
+    const mr = { x: moto.x, y: GROUND_Y - moto.h, w: moto.w, h: moto.h };
+    if (rectsOverlap(playerRect(), mr)) {
+      moto.used = true;
+      player.riding = true;
+      player.rideTimer = 10;
+    }
+  }
+  motoEl.textContent = player.riding ? "🏍 " + Math.ceil(player.rideTimer) + "sn" : "";
+
   // Çukura düşme
   if (player.y > H + 100) {
     loseLife();
@@ -343,7 +404,11 @@ function update(dt) {
     const pr = playerRect();
     if (rectsOverlap(pr, er)) {
       const stomping = player.vy > 0 && (pr.y + pr.h) - er.y < 18;
-      if (stomping) {
+      if (player.riding) {
+        en.dead = true;
+        score += 100;
+        updateHud();
+      } else if (stomping) {
         en.dead = true;
         player.vy = JUMP_V * 0.55;
         score += 100;
@@ -470,6 +535,15 @@ function drawBackground() {
     }
   }
 
+  // dönüm noktası yapılar: ikiz kuleler, 5'li site, oturma alanları (paralaks)
+  for (const lm of landmarks) {
+    const lx = (lm.x - camX) * 0.15 + (W / 2) * 0.85;
+    if (lx < -240 || lx > W + 240) continue;
+    if (lm.type === "twin_towers") drawTwinTowers(lx);
+    else if (lm.type === "five_twins") drawFiveTwins(lx);
+    else if (lm.type === "seating_area") drawSeatingArea(lx);
+  }
+
   // deniz
   const seaY = GROUND_Y + 6;
   const seaGrad = ctx.createLinearGradient(0, seaY, 0, H);
@@ -518,6 +592,70 @@ function drawFerry(x, y) {
   ctx.fillRect(x + 14, y - 12, 20, 12);
   ctx.fillStyle = "#3a3a3a";
   ctx.fillRect(x + 20, y - 22, 5, 12);
+}
+
+function drawTwinTowers(x) {
+  const baseY = GROUND_Y - 40;
+  for (const [dx, h, tone] of [[-26, 210, "#5c7f9a"], [26, 250, "#6f95b2"]]) {
+    const tw = 44;
+    const grad = ctx.createLinearGradient(x + dx - tw / 2, baseY - h, x + dx + tw / 2, baseY);
+    grad.addColorStop(0, tone);
+    grad.addColorStop(1, "#3f5a70");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x + dx - tw / 2, baseY - h, tw, h);
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    for (let wy = baseY - h + 10; wy < baseY - 8; wy += 12) {
+      ctx.fillRect(x + dx - tw / 2 + 4, wy, tw - 8, 6);
+    }
+    ctx.fillStyle = "#2c4356";
+    ctx.fillRect(x + dx - 1.5, baseY - h - 16, 3, 16);
+  }
+}
+
+function drawFiveTwins(x) {
+  const baseY = GROUND_Y - 40;
+  const h = 120, w = 26, gap = 34;
+  for (let i = -2; i <= 2; i++) {
+    const bx = x + i * gap;
+    ctx.fillStyle = i % 2 === 0 ? "#d9b8a3" : "#e2c4b0";
+    ctx.fillRect(bx - w / 2, baseY - h, w, h);
+    ctx.fillStyle = "#a9765f";
+    ctx.fillRect(bx - w / 2, baseY - h, w, 6);
+    ctx.fillStyle = "rgba(255,244,190,0.5)";
+    for (let wy = baseY - h + 12; wy < baseY - 10; wy += 13) {
+      ctx.fillRect(bx - w / 2 + 4, wy, 6, 7);
+      ctx.fillRect(bx + w / 2 - 10, wy, 6, 7);
+    }
+  }
+}
+
+function drawSeatingArea(x) {
+  const baseY = GROUND_Y - 40;
+  // pergola
+  ctx.strokeStyle = "#7a5a3a";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(x - 34, baseY - 44, 68, 30);
+  ctx.beginPath();
+  for (let i = -30; i <= 30; i += 10) {
+    ctx.moveTo(x + i, baseY - 44);
+    ctx.lineTo(x + i, baseY - 14);
+  }
+  ctx.stroke();
+  // ağaçlar
+  ctx.fillStyle = "#3f8f4c";
+  ctx.beginPath();
+  ctx.arc(x - 48, baseY - 18, 16, 0, Math.PI * 2);
+  ctx.arc(x + 48, baseY - 18, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6b4423";
+  ctx.fillRect(x - 50, baseY - 6, 4, 10);
+  ctx.fillRect(x + 46, baseY - 6, 4, 10);
+  // bank
+  ctx.fillStyle = "#8a5a34";
+  ctx.fillRect(x - 16, baseY - 4, 32, 4);
+  ctx.fillStyle = "#5a5a5a";
+  ctx.fillRect(x - 14, baseY, 3, 6);
+  ctx.fillRect(x + 11, baseY, 3, 6);
 }
 
 function drawGround() {
@@ -582,6 +720,10 @@ function drawProps() {
 
 function drawBufe(x) {
   const baseY = GROUND_Y;
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 26, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = "#e6e2d3";
   ctx.fillRect(x - 20, baseY - 46, 40, 46);
   ctx.fillStyle = "#2f8f40";
@@ -599,22 +741,39 @@ function drawBufe(x) {
 
 function drawBeltur(x) {
   const baseY = GROUND_Y;
+  // gölge
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 42, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.fillStyle = "#0e8a8a";
-  ctx.fillRect(x - 24, baseY - 50, 48, 50);
+  ctx.fillRect(x - 38, baseY - 78, 76, 78);
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(x - 38, baseY - 78, 30, 78);
   ctx.beginPath();
   ctx.fillStyle = "#0a6e6e";
-  ctx.arc(x, baseY - 50, 24, Math.PI, 0);
+  ctx.arc(x, baseY - 78, 38, Math.PI, 0);
   ctx.fill();
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(x - 38, baseY - 82, 76, 6);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 9px Trebuchet MS";
+  ctx.font = "bold 14px Trebuchet MS";
   ctx.textAlign = "center";
-  ctx.fillText("BELTUR", x, baseY - 22);
+  ctx.fillText("BELTUR", x, baseY - 34);
   ctx.fillStyle = "#dff3f3";
-  ctx.fillRect(x - 16, baseY - 14, 32, 14);
+  ctx.fillRect(x - 26, baseY - 22, 52, 22);
+  ctx.strokeStyle = "#0a6e6e";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x - 26, baseY - 22, 52, 22);
 }
 
 function drawDurumcu(x) {
   const baseY = GROUND_Y;
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 30, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
   // tekerlekler
   ctx.fillStyle = "#222";
   ctx.beginPath();
@@ -647,6 +806,10 @@ function drawDurumcu(x) {
 
 function drawTofas(x) {
   const baseY = GROUND_Y;
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 38, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = "#e8d9a0";
   ctx.fillRect(x - 34, baseY - 22, 68, 16);
   ctx.fillStyle = "#d8c88a";
@@ -673,10 +836,19 @@ function drawPlatforms() {
   for (const p of platforms) {
     const x = p.x - camX;
     if (x + p.w < 0 || x > W) continue;
-    ctx.fillStyle = "#b98a52";
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.beginPath();
+    ctx.ellipse(x + p.w / 2, GROUND_Y + 4, p.w * 0.4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const grad = ctx.createLinearGradient(x, p.y, x, p.y + p.h);
+    grad.addColorStop(0, "#c9986a");
+    grad.addColorStop(1, "#8a6136");
+    ctx.fillStyle = grad;
     ctx.fillRect(x, p.y, p.w, p.h);
-    ctx.fillStyle = "#8a6136";
-    ctx.fillRect(x, p.y + p.h - 5, p.w, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.fillRect(x, p.y, p.w, 3);
+    ctx.fillStyle = "#6b4a28";
+    ctx.fillRect(x, p.y + p.h - 4, p.w, 4);
   }
 }
 
@@ -754,6 +926,10 @@ function drawEnemy(en) {
   const x = en.x - camX;
   if (x + en.w < 0 || x > W) return;
   const bob = Math.sin(en.walkT * 10) * 2;
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(x + en.w / 2, en.y + en.h + 2, en.w * 0.5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
   // kısa boylu adam: pantolon, gömlek, kafa
   ctx.fillStyle = "#3a3a3a";
   ctx.fillRect(x + 4, en.y + 18 + bob, en.w - 8, en.h - 18);
@@ -765,6 +941,93 @@ function drawEnemy(en) {
   ctx.fill();
   ctx.fillStyle = "#222";
   ctx.fillRect(x + en.w / 2 - 6, en.y + 2 + bob, 12, 4);
+}
+
+function drawMotoIcon(x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(0, 15, 26, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(-17, 12, 9, 0, Math.PI * 2);
+  ctx.arc(17, 12, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath();
+  ctx.arc(-17, 12, 4, 0, Math.PI * 2);
+  ctx.arc(17, 12, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#d94f3d";
+  ctx.fillRect(-22, -2, 44, 12);
+  ctx.fillStyle = "#a8342a";
+  ctx.fillRect(-22, 8, 44, 4);
+  ctx.fillStyle = "#333";
+  ctx.fillRect(10, -16, 4, 14);
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(6, -16);
+  ctx.lineTo(20, -16);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawWomanGreeter(gx) {
+  const baseY = GROUND_Y;
+  const bob = Math.sin(performance.now() / 400) * 3;
+  const x = gx - 190;
+  const y = baseY - 84 + bob * 0.2;
+
+  // gölge
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 16, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // bacaklar
+  ctx.fillStyle = "#e0ac69";
+  ctx.fillRect(x - 5, y + 58, 4, 18);
+  ctx.fillRect(x + 2, y + 58, 4, 18);
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(x - 6, y + 74, 6, 5);
+  ctx.fillRect(x + 1, y + 74, 6, 5);
+
+  // elbise (uzun, sarı-turuncu)
+  ctx.fillStyle = "#f4a021";
+  ctx.beginPath();
+  ctx.moveTo(x - 12, y + 60);
+  ctx.lineTo(x - 6, y + 22);
+  ctx.lineTo(x + 6, y + 22);
+  ctx.lineTo(x + 12, y + 60);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillRect(x - 6, y + 30, 12, 4);
+
+  // kollar
+  ctx.fillStyle = "#e0ac69";
+  ctx.fillRect(x - 12, y + 26 + bob * 0.5, 4, 20);
+  ctx.fillRect(x + 8, y + 26 + bob * 0.5, 4, 20);
+
+  // kafa + sarı saç
+  ctx.fillStyle = "#e0ac69";
+  ctx.beginPath();
+  ctx.arc(x, y + 12, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f2d24b";
+  ctx.beginPath();
+  ctx.arc(x, y + 8, 11.5, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillRect(x - 12, y + 6, 5, 20);
+  ctx.fillRect(x + 7, y + 6, 5, 20);
+
+  // yüz detay
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(x - 3, y + 15, 6, 2);
 }
 
 function drawGoal() {
@@ -818,6 +1081,28 @@ function drawGoal() {
   ctx.fill();
 }
 
+function drawLeg(px, py, length, width, angle) {
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(angle);
+  ctx.fillStyle = "#1b2a4a";
+  ctx.fillRect(-width / 2, 0, width, length);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(-width / 2 - 1, length - 6, width + 4, 6);
+  ctx.restore();
+}
+
+function drawArm(px, py, length, width, angle) {
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(angle);
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(-width / 2, 0, width, length);
+  ctx.fillStyle = "#e0ac69";
+  ctx.fillRect(-width / 2, length - 5, width, 5);
+  ctx.restore();
+}
+
 function drawPlayer() {
   const x = player.x - camX;
   const y = player.y;
@@ -827,21 +1112,51 @@ function drawPlayer() {
   const legH = h * 0.4;
   const bodyH = h * 0.4;
   const headR = w * 0.42;
+  const cx = x + w / 2, cy = y + h / 2;
+
+  // gölge
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(cx, y + h + 2, w * 0.55, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // büyüme parıltısı (ışık halesi)
+  if (player.big) {
+    const pulse = 0.5 + Math.sin(performance.now() / 180) * 0.15;
+    const extra = player.glow > 0 ? player.glow * 6 : 0;
+    const r = w * 1.7 + extra;
+    const glowGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+    glowGrad.addColorStop(0, `rgba(255,224,120,${0.45 * pulse + (player.glow > 0 ? 0.25 : 0)})`);
+    glowGrad.addColorStop(1, "rgba(255,224,120,0)");
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // hareket açıları: koşu sallanışı ve zıplama pozu
+  const moving = Math.abs(player.vx) > 5;
+  let legL = 0, legR = 0, armL = 0, armR = 0;
+  if (!player.onGround) {
+    legL = 0.4; legR = -0.55;
+    armL = -2.3; armR = -1.0;
+  } else if (moving) {
+    const s = Math.sin(player.animT);
+    legL = s * 0.55;
+    legR = -s * 0.55;
+    armL = -s * 0.5;
+    armR = s * 0.5;
+  }
 
   ctx.save();
   ctx.translate(x + w / 2, 0);
   ctx.scale(player.facing, 1);
   ctx.translate(-w / 2, 0);
 
-  // eşofman altı (bacaklar) - lacivert
-  ctx.fillStyle = "#1b2a4a";
-  ctx.fillRect(2, y + h - legH, w * 0.35, legH);
-  ctx.fillRect(w - w * 0.35 - 2, y + h - legH, w * 0.35, legH);
-
-  // ayakkabı
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, y + h - 6, w * 0.4, 6);
-  ctx.fillRect(w * 0.6, y + h - 6, w * 0.4, 6);
+  const hipY = y + h - legH;
+  const legW = w * 0.32;
+  drawLeg(w * 0.72, hipY, legH, legW, legR);
+  drawLeg(w * 0.28, hipY, legH, legW, legL);
 
   // eşofman üstü (gövde) - kırmızı, beyaz şerit
   const bodyY = y + h - legH - bodyH;
@@ -850,12 +1165,12 @@ function drawPlayer() {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, bodyY + bodyH * 0.4, w, 4);
 
-  // kollar
-  ctx.fillStyle = "#c0392b";
-  ctx.fillRect(-4, bodyY + 4, 6, bodyH * 0.6);
-  ctx.fillRect(w - 2, bodyY + 4, 6, bodyH * 0.6);
+  const shoulderY = bodyY + 4;
+  const armLen = bodyH * 0.62, armW = w * 0.22;
+  drawArm(w + 1, shoulderY, armLen, armW, armR);
+  drawArm(-1, shoulderY, armLen, armW, armL);
 
-  // kafa
+  // kafa (kel)
   const headCX = w / 2, headCY = bodyY - headR + 4;
   ctx.fillStyle = "#e0ac69";
   ctx.beginPath();
@@ -878,10 +1193,18 @@ function drawPlayer() {
   ctx.lineTo(headCX + headR * 0.08, headCY - 2);
   ctx.stroke();
 
-  // saç
-  ctx.fillStyle = "#3a2a1c";
+  // kasket (şapka)
+  ctx.fillStyle = "#1b2a4a";
   ctx.beginPath();
-  ctx.arc(headCX, headCY - headR * 0.3, headR * 1.02, Math.PI, 2 * Math.PI);
+  ctx.arc(headCX, headCY - headR * 0.1, headR * 1.08, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "#14213d";
+  ctx.beginPath();
+  ctx.ellipse(headCX + headR * 0.75, headCY - headR * 0.12, headR * 0.55, headR * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.arc(headCX, headCY - headR * 1.05, headR * 0.14, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -894,9 +1217,17 @@ function draw() {
   for (const s of signs) drawSign(s.x, s.text);
   drawPlatforms();
   for (const b of boxes) drawBox(b);
+  if (!moto.used) {
+    const mx = moto.x - camX;
+    if (mx > -80 && mx < W + 80) drawMotoIcon(mx + moto.w / 2, GROUND_Y - 2, 1);
+  }
   for (const en of enemies) if (!en.dead) drawEnemy(en);
   for (const it of items) drawItem(it);
   drawGoal();
+  drawWomanGreeter(GOAL_X - 60 - camX);
+  if (player.riding) {
+    drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
+  }
   drawPlayer();
 }
 
