@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Hakuna Superbro — Sahil Koşusu</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-wrap">
+    <div id="hud">
+      <div id="hud-left">
+        <span id="score">SKOR: 0</span>
+        <span id="lives">CAN: 3</span>
+      </div>
+      <div id="hud-title">HAKUNA SUPERBRO</div>
+    </div>
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="overlay">
+      <div id="overlay-box">
+        <h1 id="overlay-title">HAKUNA SUPERBRO</h1>
+        <p id="overlay-text">Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla</p>
+        <button id="start-btn">BAŞLA</button>
+      </div>
+    </div>
+
+    <div id="touch-controls">
+      <div id="tc-left" class="tc-btn">◀</div>
+      <div id="tc-right" class="tc-btn">▶</div>
+      <div id="tc-jump" class="tc-btn">⤒</div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
