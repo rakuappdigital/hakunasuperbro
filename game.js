@@ -105,13 +105,22 @@ const moto = (() => {
   return { x, w: 50, h: 28, used: false };
 })();
 
-// Cep telefonu: alınca "video çekme" ara sahnesi başlatır
-const phone = (() => {
-  const targetX = LEVEL_END * 0.58;
-  const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) || groundSegs[6];
-  const x = Math.max(seg.x1 + 80, Math.min(targetX, seg.x2 - 80));
-  return { x, w: 20, h: 30, used: false };
-})();
+// Cep telefonları: alınca "video çekme" ara sahnesi başlatır (yolda 3 tane)
+function nearestGroundX(targetX) {
+  let best = targetX, bestDist = Infinity;
+  for (const s of groundSegs) {
+    if (s.x2 - s.x1 < 200) continue;
+    const clamped = Math.max(s.x1 + 60, Math.min(targetX, s.x2 - 60));
+    const dist = Math.abs(clamped - targetX);
+    if (dist < bestDist) { bestDist = dist; best = clamped; }
+  }
+  return best;
+}
+
+const phones = [0.12, 0.45, 0.75].map((frac) => ({
+  x: nearestGroundX(LEVEL_END * frac),
+  w: 20, h: 30, used: false,
+}));
 
 // ---------- Yardımcılar ----------
 function rectsOverlap(a, b) {
@@ -234,6 +243,8 @@ let dialogueState = "none"; // none | line1 | line2 | done
 let dialogueTimer = 0;
 let phoneTimer = 0;
 let phoneAnimT = 0;
+let phonePhase = "recording"; // recording | sending
+let phoneSendTimer = 0;
 let prevGameState = "playing";
 
 const overlay = document.getElementById("overlay");
@@ -245,13 +256,20 @@ const livesEl = document.getElementById("lives");
 const motoEl = document.getElementById("moto");
 const sendBtn = document.getElementById("send-btn");
 
-function startPhoneCutscene() {
-  phone.used = true;
+function startPhoneCutscene(ph) {
+  ph.used = true;
   prevGameState = gameState;
   gameState = "phonecutscene";
   phoneTimer = 5;
   phoneAnimT = 0;
+  phonePhase = "recording";
   sendBtn.classList.remove("hidden");
+}
+
+function sendPhoneVideo() {
+  phonePhase = "sending";
+  phoneSendTimer = 1.6;
+  sendBtn.classList.add("hidden");
 }
 
 function endPhoneCutscene() {
@@ -262,7 +280,7 @@ function endPhoneCutscene() {
 }
 
 sendBtn.addEventListener("click", () => {
-  if (gameState === "phonecutscene") endPhoneCutscene();
+  if (gameState === "phonecutscene" && phonePhase === "recording") sendPhoneVideo();
 });
 
 function loseLife() {
@@ -342,7 +360,7 @@ function startGame() {
   respawnPlayer();
   boxes.forEach(b => b.used = false);
   moto.used = false;
-  phone.used = false;
+  phones.forEach(ph => ph.used = false);
   sendBtn.classList.add("hidden");
   items = [];
   foodNotify = null;
@@ -367,8 +385,13 @@ let lastTime = performance.now();
 function update(dt) {
   if (gameState === "phonecutscene") {
     phoneAnimT += dt;
-    phoneTimer -= dt;
-    if (phoneTimer <= 0) endPhoneCutscene();
+    if (phonePhase === "recording") {
+      phoneTimer -= dt;
+      if (phoneTimer <= 0) sendPhoneVideo();
+    } else {
+      phoneSendTimer -= dt;
+      if (phoneSendTimer <= 0) endPhoneCutscene();
+    }
     return;
   }
   if (gameState !== "playing") return;
@@ -467,10 +490,11 @@ function update(dt) {
   motoEl.textContent = player.riding ? "🏍 " + Math.ceil(player.rideTimer) + "sn" : "";
 
   // Telefonu alma
-  if (!phone.used) {
-    const phr = { x: phone.x, y: GROUND_Y - phone.h, w: phone.w, h: phone.h };
+  for (const ph of phones) {
+    if (ph.used) continue;
+    const phr = { x: ph.x, y: GROUND_Y - ph.h, w: ph.w, h: ph.h };
     if (rectsOverlap(playerRect(), phr)) {
-      startPhoneCutscene();
+      startPhoneCutscene(ph);
       return;
     }
   }
@@ -1800,36 +1824,73 @@ function drawPhoneCutscene() {
   roundRect(sx, sy, sw, sh, 14);
   ctx.clip();
 
-  const skyG = ctx.createLinearGradient(sx, sy, sx, sy + sh);
-  skyG.addColorStop(0, "#5fa8dc");
-  skyG.addColorStop(1, "#bfe0f0");
-  ctx.fillStyle = skyG;
-  ctx.fillRect(sx, sy, sw, sh);
-
   const faceCX = sx + sw / 2;
   const faceCY = sy + sh / 2 + 10;
-  const tilt = Math.sin(phoneAnimT * 2.2) * 0.22;
-  const mouthOpen = (Math.sin(phoneAnimT * 7) + 1) / 2;
-  drawSelfieFace(faceCX, faceCY, 2.6, tilt, mouthOpen);
+
+  if (phonePhase === "recording") {
+    const skyG = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+    skyG.addColorStop(0, "#5fa8dc");
+    skyG.addColorStop(1, "#bfe0f0");
+    ctx.fillStyle = skyG;
+    ctx.fillRect(sx, sy, sw, sh);
+
+    const tilt = Math.sin(phoneAnimT * 2.2) * 0.22;
+    const mouthOpen = (Math.sin(phoneAnimT * 7) + 1) / 2;
+    drawSelfieFace(faceCX, faceCY, 2.6, tilt, mouthOpen);
+  } else {
+    ctx.fillStyle = "#12203a";
+    ctx.fillRect(sx, sy, sw, sh);
+
+    // gönderme animasyonu: dönen kağıt uçak
+    const spin = phoneAnimT * 4;
+    ctx.save();
+    ctx.translate(faceCX, faceCY - 20);
+    ctx.rotate(spin);
+    ctx.fillStyle = "#7fd1e0";
+    ctx.beginPath();
+    ctx.moveTo(-16, 10);
+    ctx.lineTo(16, 0);
+    ctx.lineTo(-16, -10);
+    ctx.lineTo(-8, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // yükleniyor noktaları
+    ctx.fillStyle = "#fff";
+    for (let i = 0; i < 3; i++) {
+      const bob = Math.sin(phoneAnimT * 6 + i * 1.4) * 4;
+      ctx.beginPath();
+      ctx.arc(faceCX - 16 + i * 16, faceCY + 40 + bob, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 
   ctx.restore();
 
-  // REC göstergesi
-  if (Math.sin(performance.now() / 180) > 0) {
-    ctx.fillStyle = "#ff3b3b";
-    ctx.beginPath();
-    ctx.arc(sx + 16, sy + 16, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 11px Trebuchet MS";
-  ctx.textAlign = "left";
-  ctx.fillText("REC " + Math.max(0, Math.ceil(phoneTimer)) + "sn", sx + 26, sy + 20);
+  if (phonePhase === "recording") {
+    // REC göstergesi
+    if (Math.sin(performance.now() / 180) > 0) {
+      ctx.fillStyle = "#ff3b3b";
+      ctx.beginPath();
+      ctx.arc(sx + 16, sy + 16, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 11px Trebuchet MS";
+    ctx.textAlign = "left";
+    ctx.fillText("REC " + Math.max(0, Math.ceil(phoneTimer)) + "sn", sx + 26, sy + 20);
 
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 13px Trebuchet MS";
-  ctx.textAlign = "center";
-  ctx.fillText("Video kaydediliyor...", faceCX, py + ph - 16);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 13px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText("Video kaydediliyor...", faceCX, py + ph - 16);
+  } else {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 13px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText("DOĞUŞ'A GÖNDERİLİYOR...", faceCX, py + ph - 16);
+  }
 
   ctx.fillStyle = "#444";
   ctx.beginPath();
@@ -1853,11 +1914,12 @@ function draw() {
       drawHint(mx + moto.w / 2, GROUND_Y - moto.h - 6, "Motora binebilirsin");
     }
   }
-  if (!phone.used) {
-    const phx = phone.x - camX;
-    if (phx > -60 && phx < W + 60) drawPhoneIcon(phx + phone.w / 2, GROUND_Y - phone.h / 2, 1);
-    if (Math.abs(player.x - phone.x) < 200) {
-      drawHint(phx + phone.w / 2, GROUND_Y - phone.h - 16, "Telefonu alabilirsin");
+  for (const ph of phones) {
+    if (ph.used) continue;
+    const phx = ph.x - camX;
+    if (phx > -60 && phx < W + 60) drawPhoneIcon(phx + ph.w / 2, GROUND_Y - ph.h / 2, 1);
+    if (Math.abs(player.x - ph.x) < 200) {
+      drawHint(phx + ph.w / 2, GROUND_Y - ph.h - 16, "Telefonu alabilirsin");
     }
   }
   for (const en of enemies) if (!en.dead) drawEnemy(en);
