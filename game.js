@@ -54,8 +54,8 @@ for (const seg of groundSegs) {
   platforms.push({ x: px, y: py, w: pw, h: 22 });
 }
 
-// Tabelalar: Bostancı -> Tuzla sırasıyla, tüm yola eşit yayılmış
-const signTexts = ["BOSTANCI", "MALTEPE", "KARTAL", "PENDİK", "TUZLA"];
+// Tabelalar: tüm yola eşit yayılmış
+const signTexts = ["FERHA MAH.", "KÜPLÜCE", "BURHANİYE", "BEYLERBEYİ", "KUZGUNCUK"];
 const signs = [];
 {
   const usable = groundSegs.filter(s => s.x1 > 0 && s.x1 < GOAL_X - 500 && s.x2 - s.x1 > 300);
@@ -904,8 +904,13 @@ function drawSign(x, text) {
   ctx.fillRect(sx - 75, GROUND_Y - 150, 150, 54);
   ctx.strokeRect(sx - 75, GROUND_Y - 150, 150, 54);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 18px Trebuchet MS";
   ctx.textAlign = "center";
+  let fontSize = 18;
+  ctx.font = `bold ${fontSize}px Trebuchet MS`;
+  while (ctx.measureText(text).width > 138 && fontSize > 10) {
+    fontSize -= 1;
+    ctx.font = `bold ${fontSize}px Trebuchet MS`;
+  }
   ctx.fillText(text, sx, GROUND_Y - 118);
 }
 
