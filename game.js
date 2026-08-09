@@ -145,7 +145,7 @@ function respawnPlayer() {
 }
 
 function growPlayer() {
-  // Efes etkisi 3 saniye sürer; tekrar biraya dokununca süre yenilenir
+  // Yiyecek etkisi 3 saniye sürer; tekrar yiyeceğe dokununca süre yenilenir
   player.beerTimer = 3;
   player.glow = 1.5;
   if (player.big) return;
@@ -187,7 +187,7 @@ function resetEnemies() {
 }
 resetEnemies();
 
-// ---------- Uçan biralar (power-up) ----------
+// ---------- Uçan yiyecekler (power-up) ----------
 let items = [];
 
 // ---------- Kamera ----------
@@ -405,7 +405,8 @@ function update(dt) {
       if (headY < b.y + b.h && headY > b.y - 6) {
         b.used = true;
         player.vy = 40;
-        items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop" });
+        const food = FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)];
+        items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop", food });
         score += 50;
         updateHud();
       }
@@ -466,7 +467,7 @@ function update(dt) {
   }
   enemies = enemies.filter(e => !e.dead || e._t !== undefined);
 
-  // Item (bira) güncelle
+  // Item (yiyecek) güncelle
   for (const it of items) {
     if (it.phase === "pop") {
       it.y += it.vy * dt;
@@ -1076,20 +1077,101 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+const FOOD_TYPES = ["simit", "durum", "pogaca", "midye", "kumpir"];
+
 function drawItem(it) {
   const x = it.x - camX;
   if (x + it.w < 0 || x > W) return;
-  // Efes tarzı bira kutusu: gümüş gövde + yeşil bant
-  ctx.fillStyle = "#cfd8dc";
-  ctx.fillRect(x, it.y, it.w, it.h);
-  ctx.fillStyle = "#1f7a3d";
-  ctx.fillRect(x, it.y + it.h * 0.35, it.w, it.h * 0.3);
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 8px Trebuchet MS";
-  ctx.textAlign = "center";
-  ctx.fillText("EFES", x + it.w / 2, it.y + it.h * 0.55 + 3);
-  ctx.fillStyle = "#9aa5aa";
-  ctx.fillRect(x + 2, it.y - 3, it.w - 4, 3);
+  const cx = x + it.w / 2, cy = it.y + it.h / 2;
+
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(cx, it.y + it.h + 2, it.w * 0.45, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (it.food === "simit") {
+    // simit: susamlı halka
+    ctx.strokeStyle = "#a8672c";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, it.w * 0.4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#f0dca0";
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * it.w * 0.4, cy + Math.sin(a) * it.w * 0.4, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (it.food === "durum") {
+    // dürüm: lavaş sarma
+    ctx.fillStyle = "#e8d9a8";
+    ctx.beginPath();
+    ctx.moveTo(x + 2, it.y + it.h - 2);
+    ctx.lineTo(x + it.w - 2, it.y + 6);
+    ctx.lineTo(x + it.w - 6, it.y + 2);
+    ctx.lineTo(x + 2, it.y + it.h - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#6b8f3a";
+    ctx.fillRect(x + it.w * 0.35, it.y + it.h * 0.35, it.w * 0.3, 4);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(x + it.w * 0.3, it.y + it.h * 0.5, it.w * 0.35, 4);
+  } else if (it.food === "pogaca") {
+    // poğaça: susamlı kubbe
+    ctx.fillStyle = "#e0b060";
+    ctx.beginPath();
+    ctx.arc(cx, cy + 4, it.w * 0.42, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#c8933e";
+    ctx.fillRect(cx - it.w * 0.42, cy + 3, it.w * 0.84, 5);
+    ctx.fillStyle = "#f5e3b0";
+    ctx.beginPath();
+    ctx.arc(cx, cy - 2, 1.3, 0, Math.PI * 2);
+    ctx.arc(cx - 5, cy, 1.3, 0, Math.PI * 2);
+    ctx.arc(cx + 5, cy, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (it.food === "midye") {
+    // midye dolma: iki kabuk yarısı
+    ctx.fillStyle = "#3a5a7a";
+    ctx.beginPath();
+    ctx.ellipse(cx - 4, cy + 2, it.w * 0.32, it.h * 0.34, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4d7095";
+    ctx.beginPath();
+    ctx.ellipse(cx + 4, cy - 1, it.w * 0.32, it.h * 0.34, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e8c96a";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, it.w * 0.22, it.h * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(cx - 3, cy - 1, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // kumpir: dolgulu patates
+    ctx.fillStyle = "#c8933e";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 6, it.w * 0.42, it.h * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f5e3b0";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 2, it.w * 0.4, it.h * 0.26, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#e0b83a";
+    ctx.beginPath();
+    ctx.arc(cx - 5, cy - 4, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(cx + 4, cy - 3, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4fa85e";
+    ctx.beginPath();
+    ctx.arc(cx + 1, cy - 6, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawEnemy(en) {
