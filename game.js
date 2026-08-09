@@ -2,8 +2,30 @@
 // Basit canvas tabanlı Mario-vari platform oyunu (tek bölüm)
 
 const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+const visCtx = canvas.getContext("2d");
+visCtx.imageSmoothingEnabled = false;
 const W = canvas.width, H = canvas.height;
+
+// Tüm sahne önce tam çözünürlükte bu gizli canvas'a çiziliyor, sonra
+// küçültülüp büyük canvas'a piksel sanatı (16-bit) görünümüyle basılıyor.
+const renderCanvas = document.createElement("canvas");
+renderCanvas.width = W;
+renderCanvas.height = H;
+const ctx = renderCanvas.getContext("2d");
+
+const PIXEL_SCALE = 3;
+const pixelCanvas = document.createElement("canvas");
+pixelCanvas.width = Math.round(W / PIXEL_SCALE);
+pixelCanvas.height = Math.round(H / PIXEL_SCALE);
+const pixelCtx = pixelCanvas.getContext("2d");
+pixelCtx.imageSmoothingEnabled = true;
+
+function presentPixelated() {
+  pixelCtx.clearRect(0, 0, pixelCanvas.width, pixelCanvas.height);
+  pixelCtx.drawImage(renderCanvas, 0, 0, pixelCanvas.width, pixelCanvas.height);
+  visCtx.clearRect(0, 0, W, H);
+  visCtx.drawImage(pixelCanvas, 0, 0, W, H);
+}
 
 const GROUND_Y = 430;
 const GRAVITY = 1900;
@@ -79,15 +101,15 @@ for (const seg of groundSegs) {
   enemyDefs.push({ x: seg.x1 + segLen * 0.3, x1: seg.x1 + margin, x2: seg.x2 - margin });
 }
 
-// Arka plan dönüm noktaları: ikiz kuleler, 5'li site, oturma alanları
+// Arka plan dönüm noktaları: Çamlıca Kulesi/Camii, Beylerbeyi Sarayı, Kuzguncuk evleri
 const landmarks = [
-  { x: LEVEL_END * 0.10, type: "twin_towers" },
-  { x: LEVEL_END * 0.24, type: "seating_area" },
-  { x: LEVEL_END * 0.38, type: "five_twins" },
-  { x: LEVEL_END * 0.52, type: "twin_towers" },
-  { x: LEVEL_END * 0.66, type: "seating_area" },
-  { x: LEVEL_END * 0.80, type: "five_twins" },
-  { x: LEVEL_END * 0.90, type: "twin_towers" },
+  { x: LEVEL_END * 0.08, type: "camlica_tower" },
+  { x: LEVEL_END * 0.20, type: "camlica_mosque" },
+  { x: LEVEL_END * 0.34, type: "camlica_tower" },
+  { x: LEVEL_END * 0.50, type: "beylerbeyi_palace" },
+  { x: LEVEL_END * 0.64, type: "kuzguncuk_houses" },
+  { x: LEVEL_END * 0.78, type: "kuzguncuk_houses" },
+  { x: LEVEL_END * 0.90, type: "kuzguncuk_houses" },
 ];
 
 // Motosiklet: tek seferlik, 10 saniyeliğine hız artışı verir
@@ -574,13 +596,18 @@ function drawBackground() {
     }
   }
 
-  // dönüm noktası yapılar: ikiz kuleler, 5'li site, oturma alanları (paralaks)
+  // dönüm noktası yapılar: Çamlıca (uzak tepe), Beylerbeyi Sarayı ve
+  // Kuzguncuk evleri (sahile yakın, daha az paralaks) — Çamlıca'dan
+  // Kuzguncuk'a sahil hattı
   for (const lm of landmarks) {
-    const lx = (lm.x - camX) * 0.15 + (W / 2) * 0.85;
-    if (lx < -240 || lx > W + 240) continue;
-    if (lm.type === "twin_towers") drawTwinTowers(lx);
-    else if (lm.type === "five_twins") drawFiveTwins(lx);
-    else if (lm.type === "seating_area") drawSeatingArea(lx);
+    const isNear = lm.type === "beylerbeyi_palace" || lm.type === "kuzguncuk_houses";
+    const factor = isNear ? 0.55 : 0.15;
+    const lx = (lm.x - camX) * factor + (W / 2) * (1 - factor);
+    if (lx < -260 || lx > W + 260) continue;
+    if (lm.type === "camlica_tower") drawCamlicaTower(lx);
+    else if (lm.type === "camlica_mosque") drawCamlicaMosque(lx);
+    else if (lm.type === "beylerbeyi_palace") drawBeylerbeyiPalace(lx);
+    else if (lm.type === "kuzguncuk_houses") drawKuzguncukHouses(lx);
   }
 
   // deniz
@@ -633,68 +660,146 @@ function drawFerry(x, y) {
   ctx.fillRect(x + 20, y - 22, 5, 12);
 }
 
-function drawTwinTowers(x) {
-  const baseY = GROUND_Y - 40;
-  for (const [dx, h, tone] of [[-26, 210, "#5c7f9a"], [26, 250, "#6f95b2"]]) {
-    const tw = 44;
-    const grad = ctx.createLinearGradient(x + dx - tw / 2, baseY - h, x + dx + tw / 2, baseY);
-    grad.addColorStop(0, tone);
-    grad.addColorStop(1, "#3f5a70");
-    ctx.fillStyle = grad;
-    ctx.fillRect(x + dx - tw / 2, baseY - h, tw, h);
-    ctx.fillStyle = "rgba(255,255,255,0.18)";
-    for (let wy = baseY - h + 10; wy < baseY - 8; wy += 12) {
-      ctx.fillRect(x + dx - tw / 2 + 4, wy, tw - 8, 6);
-    }
-    ctx.fillStyle = "#2c4356";
-    ctx.fillRect(x + dx - 1.5, baseY - h - 16, 3, 16);
-  }
-}
-
-function drawFiveTwins(x) {
-  const baseY = GROUND_Y - 40;
-  const h = 120, w = 26, gap = 34;
-  for (let i = -2; i <= 2; i++) {
-    const bx = x + i * gap;
-    ctx.fillStyle = i % 2 === 0 ? "#d9b8a3" : "#e2c4b0";
-    ctx.fillRect(bx - w / 2, baseY - h, w, h);
-    ctx.fillStyle = "#a9765f";
-    ctx.fillRect(bx - w / 2, baseY - h, w, 6);
-    ctx.fillStyle = "rgba(255,244,190,0.5)";
-    for (let wy = baseY - h + 12; wy < baseY - 10; wy += 13) {
-      ctx.fillRect(bx - w / 2 + 4, wy, 6, 7);
-      ctx.fillRect(bx + w / 2 - 10, wy, 6, 7);
-    }
-  }
-}
-
-function drawSeatingArea(x) {
-  const baseY = GROUND_Y - 40;
-  // pergola
-  ctx.strokeStyle = "#7a5a3a";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(x - 34, baseY - 44, 68, 30);
+function drawCamlicaTower(x) {
+  const hillTop = GROUND_Y - 40 - 50;
+  // tepe
+  ctx.fillStyle = "#5a8f4f";
   ctx.beginPath();
-  for (let i = -30; i <= 30; i += 10) {
-    ctx.moveTo(x + i, baseY - 44);
-    ctx.lineTo(x + i, baseY - 14);
-  }
-  ctx.stroke();
-  // ağaçlar
-  ctx.fillStyle = "#3f8f4c";
-  ctx.beginPath();
-  ctx.arc(x - 48, baseY - 18, 16, 0, Math.PI * 2);
-  ctx.arc(x + 48, baseY - 18, 16, 0, Math.PI * 2);
+  ctx.moveTo(x - 90, GROUND_Y - 40);
+  ctx.quadraticCurveTo(x, hillTop - 10, x + 90, GROUND_Y - 40);
+  ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = "#6b4423";
-  ctx.fillRect(x - 50, baseY - 6, 4, 10);
-  ctx.fillRect(x + 46, baseY - 6, 4, 10);
-  // bank
-  ctx.fillStyle = "#8a5a34";
-  ctx.fillRect(x - 16, baseY - 4, 32, 4);
-  ctx.fillStyle = "#5a5a5a";
-  ctx.fillRect(x - 14, baseY, 3, 6);
-  ctx.fillRect(x + 11, baseY, 3, 6);
+
+  const baseY = hillTop;
+  const towerH = 170;
+  // beton şaft
+  ctx.fillStyle = "#c7c9cc";
+  ctx.fillRect(x - 5, baseY - towerH, 10, towerH);
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.fillRect(x - 5, baseY - towerH, 3, towerH);
+  // gözlem/restoran halkası
+  ctx.fillStyle = "#9aa0a5";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY - towerH + 34, 20, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#5f6a70";
+  ctx.fillRect(x - 20, baseY - towerH + 30, 40, 6);
+  // anten
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, baseY - towerH);
+  ctx.lineTo(x, baseY - towerH - 30);
+  ctx.stroke();
+  ctx.fillStyle = "#ff4444";
+  ctx.beginPath();
+  ctx.arc(x, baseY - towerH - 30, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCamlicaMosque(x) {
+  const hillTop = GROUND_Y - 40 - 30;
+  ctx.fillStyle = "#5a8f4f";
+  ctx.beginPath();
+  ctx.moveTo(x - 130, GROUND_Y - 40);
+  ctx.quadraticCurveTo(x, hillTop - 10, x + 130, GROUND_Y - 40);
+  ctx.closePath();
+  ctx.fill();
+
+  const baseY = hillTop;
+  // ana bina
+  ctx.fillStyle = "#e4ddce";
+  ctx.fillRect(x - 55, baseY - 40, 110, 40);
+  // ana kubbe
+  ctx.fillStyle = "#8a95a0";
+  ctx.beginPath();
+  ctx.arc(x, baseY - 40, 40, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  // küçük kubbeler
+  for (const dx of [-38, 38]) {
+    ctx.fillStyle = "#8a95a0";
+    ctx.beginPath();
+    ctx.arc(x + dx, baseY - 26, 16, Math.PI, 2 * Math.PI);
+    ctx.fill();
+  }
+  // minareler (iki yanda ikişer, ince ve uzun)
+  for (const dx of [-85, -68, 68, 85]) {
+    const mh = Math.abs(dx) === 85 ? 130 : 100;
+    ctx.fillStyle = "#d8d2c2";
+    ctx.fillRect(x + dx - 3, baseY - mh, 6, mh);
+    ctx.fillStyle = "#8a95a0";
+    ctx.beginPath();
+    ctx.moveTo(x + dx - 5, baseY - mh);
+    ctx.lineTo(x + dx + 5, baseY - mh);
+    ctx.lineTo(x + dx, baseY - mh - 14);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawBeylerbeyiPalace(x) {
+  const baseY = GROUND_Y - 8;
+  const w = 150, h = 46;
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ana bina (beyaz)
+  ctx.fillStyle = "#f2efe6";
+  ctx.fillRect(x - w / 2, baseY - h, w, h);
+  // kemerli pencere sırası
+  for (let wx = x - w / 2 + 12; wx < x + w / 2 - 12; wx += 16) {
+    ctx.fillStyle = "#3a6ea5";
+    ctx.beginPath();
+    ctx.arc(wx + 5, baseY - h + 20, 5, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillRect(wx, baseY - h + 20, 10, 16);
+  }
+  // çatı
+  ctx.fillStyle = "#8a5a3c";
+  ctx.fillRect(x - w / 2 - 4, baseY - h - 6, w + 8, 6);
+  // iki yan köşk
+  for (const dx of [-w / 2, w / 2]) {
+    ctx.fillStyle = "#e8e2d3";
+    ctx.fillRect(x + dx - 10, baseY - h - 20, 20, 20);
+    ctx.fillStyle = "#8a5a3c";
+    ctx.beginPath();
+    ctx.moveTo(x + dx - 12, baseY - h - 20);
+    ctx.lineTo(x + dx + 12, baseY - h - 20);
+    ctx.lineTo(x + dx, baseY - h - 34);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // rıhtım
+  ctx.fillStyle = "#9a9a9a";
+  ctx.fillRect(x - w / 2 - 10, baseY, w + 20, 6);
+}
+
+function drawKuzguncukHouses(x) {
+  const baseY = GROUND_Y - 4;
+  const colors = ["#e07a7a", "#e0c15a", "#7ab5e0", "#7ac98a", "#d99bd9"];
+  const hw = 24;
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 3, hw * 3, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (let i = -2; i <= 2; i++) {
+    const bx = x + i * (hw + 4);
+    const h = 34 + (i % 2 === 0 ? 6 : 0);
+    ctx.fillStyle = colors[(i + 6) % colors.length];
+    ctx.fillRect(bx - hw / 2, baseY - h, hw, h);
+    ctx.fillStyle = "#5a4030";
+    ctx.beginPath();
+    ctx.moveTo(bx - hw / 2 - 3, baseY - h);
+    ctx.lineTo(bx + hw / 2 + 3, baseY - h);
+    ctx.lineTo(bx, baseY - h - 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.fillRect(bx - 7, baseY - h + 10, 6, 8);
+    ctx.fillRect(bx + 1, baseY - h + 10, 6, 8);
+  }
 }
 
 function drawGround() {
@@ -1350,41 +1455,34 @@ function drawPlayer() {
   drawArm(w + 1, shoulderY, armLen, armW, armR);
   drawArm(-1, shoulderY, armLen, armW, armL);
 
-  // kafa (kel)
+  // kafa
   const headCX = w / 2, headCY = bodyY - headR + 4;
   ctx.fillStyle = "#e0ac69";
   ctx.beginPath();
   ctx.arc(headCX, headCY, headR, 0, Math.PI * 2);
   ctx.fill();
 
-  // sakal
-  ctx.fillStyle = "#4a3626";
-  ctx.beginPath();
-  ctx.arc(headCX, headCY + headR * 0.35, headR * 0.9, 0.15 * Math.PI, 0.85 * Math.PI);
-  ctx.fill();
+  // kıvırcık saç (kahverengi, karamel vurgulu — referans fotoğraftaki saç stili)
+  const hairBase = "#4a2f1f";
+  const hairHighlight = "#8a5a35";
+  const curls = [
+    [-1.15, -0.55, 0.55], [-0.88, -0.98, 0.5], [-0.42, -1.18, 0.52], [0.05, -1.22, 0.54],
+    [0.5, -1.12, 0.5], [0.92, -0.88, 0.52], [1.15, -0.48, 0.5], [1.08, 0.05, 0.44],
+    [-1.08, 0.05, 0.44], [-0.72, -0.32, 0.4], [0.72, -0.32, 0.4], [0, -0.8, 0.56],
+    [-1.2, -0.05, 0.36], [1.2, -0.05, 0.36],
+  ];
+  curls.forEach(([dx, dy, r], i) => {
+    ctx.fillStyle = i % 3 === 0 ? hairHighlight : hairBase;
+    ctx.beginPath();
+    ctx.arc(headCX + dx * headR, headCY + dy * headR, r * headR, 0, Math.PI * 2);
+    ctx.fill();
+  });
 
-  // gözlük
-  ctx.strokeStyle = "#222";
-  ctx.lineWidth = 2;
+  // gözler
+  ctx.fillStyle = "#2a1a12";
   ctx.beginPath();
-  ctx.arc(headCX - headR * 0.4, headCY - 2, headR * 0.32, 0, Math.PI * 2);
-  ctx.arc(headCX + headR * 0.4, headCY - 2, headR * 0.32, 0, Math.PI * 2);
-  ctx.moveTo(headCX - headR * 0.08, headCY - 2);
-  ctx.lineTo(headCX + headR * 0.08, headCY - 2);
-  ctx.stroke();
-
-  // kasket (şapka)
-  ctx.fillStyle = "#1b2a4a";
-  ctx.beginPath();
-  ctx.arc(headCX, headCY - headR * 0.1, headR * 1.08, Math.PI, 2 * Math.PI);
-  ctx.fill();
-  ctx.fillStyle = "#14213d";
-  ctx.beginPath();
-  ctx.ellipse(headCX + headR * 0.75, headCY - headR * 0.12, headR * 0.55, headR * 0.22, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#c0392b";
-  ctx.beginPath();
-  ctx.arc(headCX, headCY - headR * 1.05, headR * 0.14, 0, Math.PI * 2);
+  ctx.arc(headCX - headR * 0.3, headCY + headR * 0.05, headR * 0.1, 0, Math.PI * 2);
+  ctx.arc(headCX + headR * 0.3, headCY + headR * 0.05, headR * 0.1, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -1435,6 +1533,7 @@ function loop(t) {
 
   update(dt);
   draw();
+  presentPixelated();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
