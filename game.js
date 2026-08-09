@@ -2,30 +2,14 @@
 // Basit canvas tabanlı Mario-vari platform oyunu (tek bölüm)
 
 const canvas = document.getElementById("game");
-const visCtx = canvas.getContext("2d");
-visCtx.imageSmoothingEnabled = false;
+const ctx = canvas.getContext("2d");
 const W = canvas.width, H = canvas.height;
 
-// Tüm sahne önce tam çözünürlükte bu gizli canvas'a çiziliyor, sonra
-// küçültülüp büyük canvas'a piksel sanatı (16-bit) görünümüyle basılıyor.
-const renderCanvas = document.createElement("canvas");
-renderCanvas.width = W;
-renderCanvas.height = H;
-const ctx = renderCanvas.getContext("2d");
-
-const PIXEL_SCALE = 3;
-const pixelCanvas = document.createElement("canvas");
-pixelCanvas.width = Math.round(W / PIXEL_SCALE);
-pixelCanvas.height = Math.round(H / PIXEL_SCALE);
-const pixelCtx = pixelCanvas.getContext("2d");
-pixelCtx.imageSmoothingEnabled = true;
-
-function presentPixelated() {
-  pixelCtx.clearRect(0, 0, pixelCanvas.width, pixelCanvas.height);
-  pixelCtx.drawImage(renderCanvas, 0, 0, pixelCanvas.width, pixelCanvas.height);
-  visCtx.clearRect(0, 0, W, H);
-  visCtx.drawImage(pixelCanvas, 0, 0, W, H);
-}
+// Not: önceki sürümde tüm sahneyi küçültüp büyüterek "16-bit" görünüm
+// veren bir efekt vardı; tabela/diyalog yazılarını okunmaz hale
+// getirdiği için kaldırıldı. Piksel sanatı hissi artık doğrudan
+// şekillerin kendisinden (düz renkler, keskin kenarlar) geliyor.
+function presentPixelated() {}
 
 const GROUND_Y = 430;
 const GRAVITY = 1900;
@@ -37,7 +21,7 @@ const BIG_JUMP_V = -700;
 // ---------- Seviye verisi (prosedürel, orijinalin 2 katı uzunlukta) ----------
 const LEVEL_END = 13200;
 const GOAL_X = 13000;
-const WOMAN_X = GOAL_X - 250;
+const GREETER_X = GOAL_X - 250;
 
 // Zemin parçaları (aralarında çukurlar var) — çukur genişlikleri orijinaldeki
 // gibi zıplanabilir kalsın diye sabit bir örüntüyle üretiliyor.
@@ -57,7 +41,7 @@ const groundSegs = [];
   // Hedef (Tuzla Marina) ve kadının durduğu alanın altında kesinlikle
   // zemin olsun — üretim rastgele bir çukur bırakmış olabilir.
   for (let s = 0; s < groundSegs.length; s++) {
-    if (groundSegs[s].x2 >= WOMAN_X - 300 && groundSegs[s].x1 <= GOAL_X) {
+    if (groundSegs[s].x2 >= GREETER_X - 300 && groundSegs[s].x1 <= GOAL_X) {
       groundSegs[s].x2 = Math.max(groundSegs[s].x2, LEVEL_END + 300);
       groundSegs.length = s + 1;
       break;
@@ -104,11 +88,12 @@ for (const seg of groundSegs) {
 // Arka plan dönüm noktaları: Çamlıca Kulesi/Camii, Beylerbeyi Sarayı, Kuzguncuk evleri
 const landmarks = [
   { x: LEVEL_END * 0.08, type: "camlica_tower" },
-  { x: LEVEL_END * 0.20, type: "camlica_mosque" },
-  { x: LEVEL_END * 0.34, type: "camlica_tower" },
-  { x: LEVEL_END * 0.50, type: "beylerbeyi_palace" },
-  { x: LEVEL_END * 0.64, type: "kuzguncuk_houses" },
-  { x: LEVEL_END * 0.78, type: "kuzguncuk_houses" },
+  { x: LEVEL_END * 0.18, type: "camlica_mosque" },
+  { x: LEVEL_END * 0.30, type: "camlica_tower" },
+  { x: LEVEL_END * 0.42, type: "beylerbeyi_stadium" },
+  { x: LEVEL_END * 0.54, type: "beylerbeyi_palace" },
+  { x: LEVEL_END * 0.66, type: "kuzguncuk_houses" },
+  { x: LEVEL_END * 0.80, type: "kuzguncuk_houses" },
   { x: LEVEL_END * 0.90, type: "kuzguncuk_houses" },
 ];
 
@@ -337,7 +322,7 @@ function startGame() {
 
 setOverlay({
   title: "HAZIR MISIN?",
-  text: "Bostancı'dan Tuzla Marina'ya koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
+  text: "Çamlıca'dan Üsküdar'a koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
   buttons: [{ label: "BAŞLA", onClick: startGame }],
 });
 
@@ -350,7 +335,7 @@ function update(dt) {
   if (player.x - 40 > player.respawnX) player.respawnX = Math.max(player.respawnX, Math.floor(player.x / 400) * 400);
 
   // Kadınla karşılaşma diyaloğu
-  if (dialogueState === "none" && player.x + player.w >= WOMAN_X - 15) {
+  if (dialogueState === "none" && player.x + player.w >= GREETER_X - 15) {
     dialogueState = "line1";
     dialogueTimer = 0;
   }
@@ -600,7 +585,7 @@ function drawBackground() {
   // Kuzguncuk evleri (sahile yakın, daha az paralaks) — Çamlıca'dan
   // Kuzguncuk'a sahil hattı
   for (const lm of landmarks) {
-    const isNear = lm.type === "beylerbeyi_palace" || lm.type === "kuzguncuk_houses";
+    const isNear = lm.type === "beylerbeyi_palace" || lm.type === "kuzguncuk_houses" || lm.type === "beylerbeyi_stadium";
     const factor = isNear ? 0.55 : 0.15;
     const lx = (lm.x - camX) * factor + (W / 2) * (1 - factor);
     if (lx < -260 || lx > W + 260) continue;
@@ -608,6 +593,7 @@ function drawBackground() {
     else if (lm.type === "camlica_mosque") drawCamlicaMosque(lx);
     else if (lm.type === "beylerbeyi_palace") drawBeylerbeyiPalace(lx);
     else if (lm.type === "kuzguncuk_houses") drawKuzguncukHouses(lx);
+    else if (lm.type === "beylerbeyi_stadium") drawBeylerbeyiStadium(lx);
   }
 
   // deniz
@@ -776,6 +762,48 @@ function drawBeylerbeyiPalace(x) {
   ctx.fillRect(x - w / 2 - 10, baseY, w + 20, 6);
 }
 
+function drawBeylerbeyiStadium(x) {
+  const baseY = GROUND_Y - 6;
+  const w = 170, h = 50;
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 4, w * 0.55, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // stant gövdesi (gri beton, kavisli üst)
+  ctx.fillStyle = "#9a9ea3";
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, baseY);
+  ctx.quadraticCurveTo(x, baseY - h - 10, x + w / 2, baseY);
+  ctx.closePath();
+  ctx.fill();
+
+  // oturma sırası çizgileri
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 5; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2 + i * 10, baseY);
+    ctx.quadraticCurveTo(x, baseY - h - 10 + i * 8, x + w / 2 - i * 10, baseY);
+    ctx.stroke();
+  }
+
+  // saha (yeşil şerit, giriş boşluğundan görünen)
+  ctx.fillStyle = "#4fa85e";
+  ctx.fillRect(x - w / 2 + 16, baseY - 10, w - 32, 10);
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - w / 2 + 16, baseY - 10, w - 32, 10);
+
+  // projektör direkleri
+  for (const dx of [-w / 2 + 8, w / 2 - 8]) {
+    ctx.fillStyle = "#555";
+    ctx.fillRect(x + dx - 2, baseY - h - 40, 4, 40);
+    ctx.fillStyle = "#ddd";
+    ctx.fillRect(x + dx - 10, baseY - h - 46, 20, 8);
+  }
+}
+
 function drawKuzguncukHouses(x) {
   const baseY = GROUND_Y - 4;
   const colors = ["#e07a7a", "#e0c15a", "#7ab5e0", "#7ac98a", "#d99bd9"];
@@ -844,10 +872,10 @@ function drawGround() {
   }
 }
 
-// ---------- Yerel dekor: büfe / beltur / dürümcü / tofaş ----------
-const propTypes = ["bufe", "tofas", "durum", "beltur"];
+// ---------- Yerel dekor: büfe / ağaç / dürümcü / tofaş ----------
+const propTypes = ["bufe", "tofas", "durum", "tree", "tree"];
 const props = [];
-for (let x = 260, i = 0; x < LEVEL_END - 400; x += 470, i++) {
+for (let x = 260, i = 0; x < LEVEL_END - 400; x += 380, i++) {
   props.push({ x, type: propTypes[i % propTypes.length] });
 }
 
@@ -856,7 +884,7 @@ function drawProps() {
     const x = p.x - camX;
     if (x < -90 || x > W + 90) continue;
     if (p.type === "bufe") drawBufe(x);
-    else if (p.type === "beltur") drawBeltur(x);
+    else if (p.type === "tree") drawTree(x);
     else if (p.type === "durum") drawDurumcu(x);
     else if (p.type === "tofas") drawTofas(x);
   }
@@ -883,33 +911,26 @@ function drawBufe(x) {
   ctx.fillRect(x + 4, baseY - 8, 4, 8);
 }
 
-function drawBeltur(x) {
+function drawTree(x) {
   const baseY = GROUND_Y;
-  // gölge
   ctx.fillStyle = "rgba(0,0,0,0.15)";
   ctx.beginPath();
-  ctx.ellipse(x, baseY + 2, 42, 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, baseY + 2, 22, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  ctx.fillStyle = "#0e8a8a";
-  ctx.fillRect(x - 38, baseY - 78, 76, 78);
-  ctx.fillStyle = "rgba(255,255,255,0.12)";
-  ctx.fillRect(x - 38, baseY - 78, 30, 78);
+  // gövde
+  ctx.fillStyle = "#6b4423";
+  ctx.fillRect(x - 4, baseY - 30, 8, 30);
+  // yapraklar
+  ctx.fillStyle = "#3f8f4c";
   ctx.beginPath();
-  ctx.fillStyle = "#0a6e6e";
-  ctx.arc(x, baseY - 78, 38, Math.PI, 0);
+  ctx.arc(x, baseY - 42, 18, 0, Math.PI * 2);
+  ctx.arc(x - 14, baseY - 32, 13, 0, Math.PI * 2);
+  ctx.arc(x + 14, baseY - 32, 13, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#ffd166";
-  ctx.fillRect(x - 38, baseY - 82, 76, 6);
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 14px Trebuchet MS";
-  ctx.textAlign = "center";
-  ctx.fillText("BELTUR", x, baseY - 34);
-  ctx.fillStyle = "#dff3f3";
-  ctx.fillRect(x - 26, baseY - 22, 52, 22);
-  ctx.strokeStyle = "#0a6e6e";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x - 26, baseY - 22, 52, 22);
+  ctx.fillStyle = "#4fa85e";
+  ctx.beginPath();
+  ctx.arc(x - 6, baseY - 48, 10, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawDurumcu(x) {
@@ -1261,7 +1282,7 @@ function drawMotoIcon(x, y, scale) {
   ctx.restore();
 }
 
-function drawWomanGreeter(gx) {
+function drawManGreeter(gx) {
   const baseY = GROUND_Y;
   const bob = Math.sin(performance.now() / 400) * 3;
   const x = gx - 190;
@@ -1273,97 +1294,129 @@ function drawWomanGreeter(gx) {
   ctx.ellipse(x, baseY + 2, 16, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // bacaklar
-  ctx.fillStyle = "#e0ac69";
-  ctx.fillRect(x - 5, y + 58, 4, 18);
-  ctx.fillRect(x + 2, y + 58, 4, 18);
-  ctx.fillStyle = "#c0392b";
-  ctx.fillRect(x - 6, y + 74, 6, 5);
-  ctx.fillRect(x + 1, y + 74, 6, 5);
+  // bacaklar (eşofman altı, lacivert)
+  ctx.fillStyle = "#1b2a4a";
+  ctx.fillRect(x - 6, y + 58, 5, 18);
+  ctx.fillRect(x + 1, y + 58, 5, 18);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x - 7, y + 74, 7, 5);
+  ctx.fillRect(x, y + 74, 7, 5);
 
-  // elbise (uzun, sarı-turuncu)
-  ctx.fillStyle = "#f4a021";
-  ctx.beginPath();
-  ctx.moveTo(x - 12, y + 60);
-  ctx.lineTo(x - 6, y + 22);
-  ctx.lineTo(x + 6, y + 22);
-  ctx.lineTo(x + 12, y + 60);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
-  ctx.fillRect(x - 6, y + 30, 12, 4);
+  // gövde (siyah tişört)
+  ctx.fillStyle = "#161616";
+  ctx.fillRect(x - 12, y + 22, 24, 38);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(x - 12, y + 22, 24, 5);
 
   // kollar
+  ctx.fillStyle = "#161616";
+  ctx.fillRect(x - 16, y + 26 + bob * 0.5, 5, 20);
+  ctx.fillRect(x + 11, y + 26 + bob * 0.5, 5, 20);
   ctx.fillStyle = "#e0ac69";
-  ctx.fillRect(x - 12, y + 26 + bob * 0.5, 4, 20);
-  ctx.fillRect(x + 8, y + 26 + bob * 0.5, 4, 20);
+  ctx.fillRect(x - 16, y + 44 + bob * 0.5, 5, 5);
+  ctx.fillRect(x + 11, y + 44 + bob * 0.5, 5, 5);
 
-  // kafa + sarı saç
+  // kafa
+  const headCX = x, headCY = y + 10;
   ctx.fillStyle = "#e0ac69";
   ctx.beginPath();
-  ctx.arc(x, y + 12, 10, 0, Math.PI * 2);
+  ctx.arc(headCX, headCY, 10.5, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#f2d24b";
-  ctx.beginPath();
-  ctx.arc(x, y + 8, 11.5, Math.PI, 2 * Math.PI);
-  ctx.fill();
-  ctx.fillRect(x - 12, y + 6, 5, 20);
-  ctx.fillRect(x + 7, y + 6, 5, 20);
 
-  // yüz detay
-  ctx.fillStyle = "#c0392b";
-  ctx.fillRect(x - 3, y + 15, 6, 2);
+  // gözlük
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(headCX - 4, headCY, 3.4, 0, Math.PI * 2);
+  ctx.arc(headCX + 4, headCY, 3.4, 0, Math.PI * 2);
+  ctx.moveTo(headCX - 0.8, headCY);
+  ctx.lineTo(headCX + 0.8, headCY);
+  ctx.stroke();
+
+  // kasket (şapka)
+  ctx.fillStyle = "#1b2a4a";
+  ctx.beginPath();
+  ctx.arc(headCX, headCY - 1, 11.5, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "#14213d";
+  ctx.beginPath();
+  ctx.ellipse(headCX + 8, headCY - 1, 6, 2.4, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawGoal() {
   const gx = GOAL_X - 60 - camX;
-  // Tuzla Marina yapısı: kule + iskele
-  ctx.fillStyle = "#e8e2d6";
-  ctx.fillRect(gx, GROUND_Y - 220, 90, 220);
-  ctx.fillStyle = "#3a6ea5";
-  for (let i = 0; i < 6; i++) {
-    ctx.fillRect(gx + 8, GROUND_Y - 200 + i * 32, 74, 16);
-  }
-  // çatı
-  ctx.fillStyle = "#c0392b";
+  const baseY = GROUND_Y - 4;
+
+  // yoldan adaya taş geçit
+  ctx.fillStyle = "#9a9a8a";
+  ctx.fillRect(gx - 46, baseY - 6, 46, 10);
+
+  // kayalık ada temeli
+  ctx.fillStyle = "#8a8f78";
   ctx.beginPath();
-  ctx.moveTo(gx - 10, GROUND_Y - 220);
-  ctx.lineTo(gx + 45, GROUND_Y - 260);
-  ctx.lineTo(gx + 100, GROUND_Y - 220);
+  ctx.ellipse(gx + 45, baseY + 4, 66, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6f7460";
+  ctx.fillRect(gx, baseY - 14, 90, 16);
+
+  // Kız Kulesi gövdesi (taş)
+  const towerGrad = ctx.createLinearGradient(gx + 10, baseY - 150, gx + 80, baseY - 150);
+  towerGrad.addColorStop(0, "#b6935f");
+  towerGrad.addColorStop(0.5, "#e6cf9f");
+  towerGrad.addColorStop(1, "#b6935f");
+  ctx.fillStyle = towerGrad;
+  ctx.fillRect(gx + 12, baseY - 150, 66, 138);
+
+  // pencereler
+  ctx.fillStyle = "#3a2a1a";
+  for (let i = 0; i < 3; i++) {
+    ctx.fillRect(gx + 27 + i * 17, baseY - 108, 8, 14);
+  }
+
+  // üst kornis + kırmızı konik çatı
+  ctx.fillStyle = "#efe6d3";
+  ctx.fillRect(gx + 4, baseY - 160, 82, 12);
+  ctx.beginPath();
+  ctx.moveTo(gx, baseY - 160);
+  ctx.lineTo(gx + 45, baseY - 212);
+  ctx.lineTo(gx + 90, baseY - 160);
+  ctx.closePath();
+  ctx.fillStyle = "#a83232";
+  ctx.fill();
+
+  // fener ışığı
+  ctx.fillStyle = "rgba(255,240,180,0.45)";
+  ctx.beginPath();
+  ctx.arc(gx + 45, baseY - 166, 11, 0, Math.PI * 2);
+  ctx.fill();
+
+  // bayrak direği + Türk bayrağı
+  ctx.fillStyle = "#999";
+  ctx.fillRect(gx + 43, baseY - 236, 3, 24);
+  const flagY = gameState === "win" ? Math.max(baseY - 236, baseY - 40 - winTimer * 120) : baseY - 232;
+  ctx.fillStyle = "#e30a17";
+  ctx.beginPath();
+  ctx.moveTo(gx + 46, flagY);
+  ctx.lineTo(gx + 78, flagY + 8);
+  ctx.lineTo(gx + 46, flagY + 16);
   ctx.closePath();
   ctx.fill();
-  // tabela: TUZLA MARİNA
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(gx + 56, flagY + 8, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // etiket
   ctx.fillStyle = "#0033a0";
-  ctx.fillRect(gx - 20, GROUND_Y - 245, 130, 26);
+  ctx.fillRect(gx - 15, baseY - 200, 120, 22);
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 2;
-  ctx.strokeRect(gx - 20, GROUND_Y - 245, 130, 26);
+  ctx.strokeRect(gx - 15, baseY - 200, 120, 22);
   ctx.fillStyle = "#fff";
   ctx.font = "bold 12px Trebuchet MS";
   ctx.textAlign = "center";
-  ctx.fillText("TUZLA MARİNA", gx + 45, GROUND_Y - 227);
-
-  // bayrak direği
-  ctx.fillStyle = "#999";
-  ctx.fillRect(gx + 130, GROUND_Y - 260, 6, 260);
-  const flagY = gameState === "win" ? Math.max(GROUND_Y - 260, GROUND_Y - 40 - winTimer * 120) : GROUND_Y - 250;
-  ctx.fillStyle = "#ffcc00";
-  ctx.beginPath();
-  ctx.moveTo(gx + 136, flagY);
-  ctx.lineTo(gx + 170, flagY + 10);
-  ctx.lineTo(gx + 136, flagY + 20);
-  ctx.closePath();
-  ctx.fill();
-
-  // yatlar
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(gx - 130, GROUND_Y - 20, 50, 14);
-  ctx.fillStyle = "#3a6ea5";
-  ctx.beginPath();
-  ctx.moveTo(gx - 130, GROUND_Y - 20);
-  ctx.lineTo(gx - 105, GROUND_Y - 40);
-  ctx.lineTo(gx - 105, GROUND_Y - 20);
-  ctx.fill();
+  ctx.fillText("KIZ KULESİ", gx + 45, baseY - 184);
 }
 
 function drawLeg(px, py, length, width, angle) {
@@ -1505,16 +1558,16 @@ function draw() {
   for (const en of enemies) if (!en.dead) drawEnemy(en);
   for (const it of items) drawItem(it);
   drawGoal();
-  drawWomanGreeter(GOAL_X - 60 - camX);
+  drawManGreeter(GOAL_X - 60 - camX);
   if (player.riding) {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
   }
   drawPlayer();
 
   if (dialogueState === "line1") {
-    drawSpeechBubble(WOMAN_X - camX, GROUND_Y - 88, "Buraya kadar gelmen büyük başarı");
+    drawSpeechBubble(GREETER_X - camX, GROUND_Y - 88, "NE YÜRÜDÜN YİNE YA");
   } else if (dialogueState === "line2") {
-    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Ne demek ama ebem s*kildi gerçekten...");
+    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Acıktım...");
   }
 }
 
