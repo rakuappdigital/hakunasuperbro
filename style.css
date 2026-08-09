@@ -153,3 +153,22 @@ canvas#game {
 @media (max-width: 800px), (hover: none) {
   #touch-controls { display: flex; }
 }
+
+#send-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  background: #25d366;
+  color: #063;
+  border: none;
+  padding: 14px 40px;
+  font-size: 18px;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+#send-btn:hover { background: #1eb857; }
+#send-btn.hidden { display: none; }

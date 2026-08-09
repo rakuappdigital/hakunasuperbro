@@ -61,7 +61,7 @@ for (const seg of groundSegs) {
 }
 
 // Tabelalar: tüm yola eşit yayılmış
-const signTexts = ["FERHA MAH.", "KÜPLÜCE", "BURHANİYE", "BEYLERBEYİ", "KUZGUNCUK"];
+const signTexts = ["FERAH MAHALLESİ", "KÜPLÜCE", "BURHANİYE", "BEYLERBEYİ", "KUZGUNCUK"];
 const signs = [];
 {
   const usable = groundSegs.filter(s => s.x1 > 0 && s.x1 < GOAL_X - 500 && s.x2 - s.x1 > 300);
@@ -103,6 +103,14 @@ const moto = (() => {
   const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) || groundSegs[3];
   const x = Math.max(seg.x1 + 80, Math.min(targetX, seg.x2 - 80));
   return { x, w: 50, h: 28, used: false };
+})();
+
+// Cep telefonu: alınca "video çekme" ara sahnesi başlatır
+const phone = (() => {
+  const targetX = LEVEL_END * 0.58;
+  const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) || groundSegs[6];
+  const x = Math.max(seg.x1 + 80, Math.min(targetX, seg.x2 - 80));
+  return { x, w: 20, h: 30, used: false };
 })();
 
 // ---------- Yardımcılar ----------
@@ -189,6 +197,7 @@ resetEnemies();
 
 // ---------- Uçan yiyecekler (power-up) ----------
 let items = [];
+let foodNotify = null;
 
 // ---------- Kamera ----------
 let camX = 0;
@@ -223,6 +232,9 @@ let jumpHeld = false;
 let winTimer = 0;
 let dialogueState = "none"; // none | line1 | line2 | done
 let dialogueTimer = 0;
+let phoneTimer = 0;
+let phoneAnimT = 0;
+let prevGameState = "playing";
 
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlay-title");
@@ -231,6 +243,27 @@ const overlayButtons = document.getElementById("overlay-buttons");
 const scoreEl = document.getElementById("score");
 const livesEl = document.getElementById("lives");
 const motoEl = document.getElementById("moto");
+const sendBtn = document.getElementById("send-btn");
+
+function startPhoneCutscene() {
+  phone.used = true;
+  prevGameState = gameState;
+  gameState = "phonecutscene";
+  phoneTimer = 5;
+  phoneAnimT = 0;
+  sendBtn.classList.remove("hidden");
+}
+
+function endPhoneCutscene() {
+  gameState = prevGameState;
+  sendBtn.classList.add("hidden");
+  score += 100;
+  updateHud();
+}
+
+sendBtn.addEventListener("click", () => {
+  if (gameState === "phonecutscene") endPhoneCutscene();
+});
 
 function loseLife() {
   lives -= 1;
@@ -309,7 +342,10 @@ function startGame() {
   respawnPlayer();
   boxes.forEach(b => b.used = false);
   moto.used = false;
+  phone.used = false;
+  sendBtn.classList.add("hidden");
   items = [];
+  foodNotify = null;
   resetEnemies();
   camX = 0;
   winTimer = 0;
@@ -329,6 +365,12 @@ setOverlay({
 // ---------- Güncelleme ----------
 let lastTime = performance.now();
 function update(dt) {
+  if (gameState === "phonecutscene") {
+    phoneAnimT += dt;
+    phoneTimer -= dt;
+    if (phoneTimer <= 0) endPhoneCutscene();
+    return;
+  }
   if (gameState !== "playing") return;
 
   // checkpoint ilerlemesi
@@ -424,6 +466,15 @@ function update(dt) {
   }
   motoEl.textContent = player.riding ? "🏍 " + Math.ceil(player.rideTimer) + "sn" : "";
 
+  // Telefonu alma
+  if (!phone.used) {
+    const phr = { x: phone.x, y: GROUND_Y - phone.h, w: phone.w, h: phone.h };
+    if (rectsOverlap(playerRect(), phr)) {
+      startPhoneCutscene();
+      return;
+    }
+  }
+
   // Çukura düşme
   if (player.y > H + 100) {
     loseLife();
@@ -491,9 +542,11 @@ function update(dt) {
       score += 200;
       updateHud();
       it.collected = true;
+      foodNotify = { food: it.food, timer: 2.2 };
     }
   }
   items = items.filter(i => !i.collected && i.x < player.x + 1400);
+  if (foodNotify && foodNotify.timer > 0) foodNotify.timer -= dt;
 
   // Kamera
   camX = Math.max(0, player.x - W / 2 + player.w / 2);
@@ -1078,6 +1131,98 @@ function roundRect(x, y, w, h, r) {
 }
 
 const FOOD_TYPES = ["simit", "durum", "pogaca", "midye", "kumpir"];
+const FOOD_NAMES = { simit: "Simit", durum: "Dürüm", pogaca: "Poğaça", midye: "Midye Dolma", kumpir: "Kumpir" };
+
+// Yiyecek ikonunu (cx,cy) merkezli, w x h boyutunda çizer.
+// Hem dünyadaki küçük item hem de sağ üstteki büyük bildirim için kullanılır.
+function drawFoodIcon(food, cx, cy, w, h) {
+  const x = cx - w / 2, y = cy - h / 2;
+
+  if (food === "simit") {
+    // simit: susamlı halka
+    ctx.strokeStyle = "#a8672c";
+    ctx.lineWidth = w * 0.25;
+    ctx.beginPath();
+    ctx.arc(cx, cy, w * 0.4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#f0dca0";
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * w * 0.4, cy + Math.sin(a) * w * 0.4, Math.max(1.3, w * 0.05), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (food === "durum") {
+    // dürüm: lavaş sarma
+    ctx.fillStyle = "#e8d9a8";
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.07, y + h - h * 0.07);
+    ctx.lineTo(x + w - w * 0.07, y + h * 0.18);
+    ctx.lineTo(x + w - w * 0.22, y + h * 0.06);
+    ctx.lineTo(x + w * 0.07, y + h - h * 0.24);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#6b8f3a";
+    ctx.fillRect(x + w * 0.35, y + h * 0.35, w * 0.3, h * 0.12);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(x + w * 0.3, y + h * 0.5, w * 0.35, h * 0.12);
+  } else if (food === "pogaca") {
+    // poğaça: susamlı kubbe
+    ctx.fillStyle = "#e0b060";
+    ctx.beginPath();
+    ctx.arc(cx, cy + h * 0.12, w * 0.42, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#c8933e";
+    ctx.fillRect(cx - w * 0.42, cy + h * 0.09, w * 0.84, h * 0.15);
+    ctx.fillStyle = "#f5e3b0";
+    const r = Math.max(1.3, w * 0.05);
+    ctx.beginPath();
+    ctx.arc(cx, cy - h * 0.06, r, 0, Math.PI * 2);
+    ctx.arc(cx - w * 0.18, cy, r, 0, Math.PI * 2);
+    ctx.arc(cx + w * 0.18, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (food === "midye") {
+    // midye dolma: iki kabuk yarısı
+    ctx.fillStyle = "#3a5a7a";
+    ctx.beginPath();
+    ctx.ellipse(cx - w * 0.14, cy + h * 0.06, w * 0.32, h * 0.34, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4d7095";
+    ctx.beginPath();
+    ctx.ellipse(cx + w * 0.14, cy - h * 0.03, w * 0.32, h * 0.34, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e8c96a";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, w * 0.22, h * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(cx - w * 0.1, cy - h * 0.03, Math.max(1.2, w * 0.04), 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // kumpir: dolgulu patates
+    ctx.fillStyle = "#c8933e";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + h * 0.18, w * 0.42, h * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f5e3b0";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - h * 0.06, w * 0.4, h * 0.26, 0, Math.PI, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = "#e0b83a";
+    ctx.beginPath();
+    ctx.arc(cx - w * 0.18, cy - h * 0.12, Math.max(2, w * 0.06), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(cx + w * 0.14, cy - h * 0.09, Math.max(1.6, w * 0.05), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4fa85e";
+    ctx.beginPath();
+    ctx.arc(cx + w * 0.04, cy - h * 0.18, Math.max(1.4, w * 0.045), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
 function drawItem(it) {
   const x = it.x - camX;
@@ -1089,89 +1234,27 @@ function drawItem(it) {
   ctx.ellipse(cx, it.y + it.h + 2, it.w * 0.45, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  if (it.food === "simit") {
-    // simit: susamlı halka
-    ctx.strokeStyle = "#a8672c";
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.arc(cx, cy, it.w * 0.4, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#f0dca0";
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx + Math.cos(a) * it.w * 0.4, cy + Math.sin(a) * it.w * 0.4, 1.3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (it.food === "durum") {
-    // dürüm: lavaş sarma
-    ctx.fillStyle = "#e8d9a8";
-    ctx.beginPath();
-    ctx.moveTo(x + 2, it.y + it.h - 2);
-    ctx.lineTo(x + it.w - 2, it.y + 6);
-    ctx.lineTo(x + it.w - 6, it.y + 2);
-    ctx.lineTo(x + 2, it.y + it.h - 8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#6b8f3a";
-    ctx.fillRect(x + it.w * 0.35, it.y + it.h * 0.35, it.w * 0.3, 4);
-    ctx.fillStyle = "#c0392b";
-    ctx.fillRect(x + it.w * 0.3, it.y + it.h * 0.5, it.w * 0.35, 4);
-  } else if (it.food === "pogaca") {
-    // poğaça: susamlı kubbe
-    ctx.fillStyle = "#e0b060";
-    ctx.beginPath();
-    ctx.arc(cx, cy + 4, it.w * 0.42, Math.PI, 2 * Math.PI);
-    ctx.fill();
-    ctx.fillStyle = "#c8933e";
-    ctx.fillRect(cx - it.w * 0.42, cy + 3, it.w * 0.84, 5);
-    ctx.fillStyle = "#f5e3b0";
-    ctx.beginPath();
-    ctx.arc(cx, cy - 2, 1.3, 0, Math.PI * 2);
-    ctx.arc(cx - 5, cy, 1.3, 0, Math.PI * 2);
-    ctx.arc(cx + 5, cy, 1.3, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (it.food === "midye") {
-    // midye dolma: iki kabuk yarısı
-    ctx.fillStyle = "#3a5a7a";
-    ctx.beginPath();
-    ctx.ellipse(cx - 4, cy + 2, it.w * 0.32, it.h * 0.34, -0.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#4d7095";
-    ctx.beginPath();
-    ctx.ellipse(cx + 4, cy - 1, it.w * 0.32, it.h * 0.34, 0.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#e8c96a";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, it.w * 0.22, it.h * 0.2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#c0392b";
-    ctx.beginPath();
-    ctx.arc(cx - 3, cy - 1, 1.2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    // kumpir: dolgulu patates
-    ctx.fillStyle = "#c8933e";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 6, it.w * 0.42, it.h * 0.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#f5e3b0";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - 2, it.w * 0.4, it.h * 0.26, 0, Math.PI, 2 * Math.PI);
-    ctx.fill();
-    ctx.fillStyle = "#e0b83a";
-    ctx.beginPath();
-    ctx.arc(cx - 5, cy - 4, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#c0392b";
-    ctx.beginPath();
-    ctx.arc(cx + 4, cy - 3, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#4fa85e";
-    ctx.beginPath();
-    ctx.arc(cx + 1, cy - 6, 1.4, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  drawFoodIcon(it.food, cx, cy, it.w, it.h);
+}
+
+function drawFoodNotify() {
+  if (!foodNotify || foodNotify.timer <= 0) return;
+  const boxW = 132, boxH = 108;
+  const bx = W - boxW - 16, by = 46;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, foodNotify.timer * 2);
+  ctx.fillStyle = "rgba(15,15,25,0.85)";
+  roundRect(bx, by, boxW, boxH, 10);
+  ctx.fill();
+  ctx.strokeStyle = "#ffcc00";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  drawFoodIcon(foodNotify.food, bx + boxW / 2, by + 44, 62, 72);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 14px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText(FOOD_NAMES[foodNotify.food] + "!", bx + boxW / 2, by + boxH - 12);
+  ctx.restore();
 }
 
 function drawEnemy(en) {
@@ -1195,11 +1278,10 @@ function drawEnemy(en) {
   ctx.fillRect(x + en.w / 2 - 6, en.y + 2 + bob, 12, 4);
 }
 
-function drawMotoHint(x, y) {
+function drawHint(x, y, text) {
   const bob = Math.sin(performance.now() / 220) * 4;
   ctx.font = "bold 12px Trebuchet MS";
   ctx.textAlign = "center";
-  const text = "Motora binebilirsin";
   const tw = ctx.measureText(text).width;
   const boxW = tw + 20, boxH = 24;
   const boxX = x - boxW / 2, boxY = y - boxH - 6;
@@ -1221,6 +1303,28 @@ function drawMotoHint(x, y) {
   ctx.lineTo(x, boxY + boxH + 14 + bob);
   ctx.closePath();
   ctx.fill();
+}
+
+function drawPhoneIcon(x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(0, 17, 14, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#151515";
+  roundRect(-10, -18, 20, 36, 5);
+  ctx.fill();
+  ctx.fillStyle = "#7fd1e0";
+  ctx.fillRect(-8, -14, 16, 24);
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillRect(-8, -14, 6, 24);
+  ctx.fillStyle = "#333";
+  ctx.beginPath();
+  ctx.arc(0, 14, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawSpeechBubble(cx, tailY, text) {
@@ -1623,6 +1727,118 @@ function drawPlayer() {
   ctx.restore();
 }
 
+function drawSelfieFace(cx, cy, scale, tilt, mouthOpen) {
+  const headR = 16 * scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+
+  // omuz/gövde ipucu (kırmızı eşofman üstü)
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.ellipse(0, headR * 1.9, headR * 1.6, headR * 1.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // yüz
+  ctx.fillStyle = "#e0ac69";
+  ctx.beginPath();
+  ctx.arc(0, 0, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // kıvırcık saç
+  const hairBase = "#4a2f1f";
+  const hairHighlight = "#8a5a35";
+  const curls = [
+    [-1.15, -0.55, 0.55], [-0.88, -0.98, 0.5], [-0.42, -1.18, 0.52], [0.05, -1.22, 0.54],
+    [0.5, -1.12, 0.5], [0.92, -0.88, 0.52], [1.15, -0.48, 0.5], [1.08, 0.05, 0.44],
+    [-1.08, 0.05, 0.44], [-0.72, -0.32, 0.4], [0.72, -0.32, 0.4], [0, -0.8, 0.56],
+    [-1.2, -0.05, 0.36], [1.2, -0.05, 0.36],
+  ];
+  curls.forEach(([dx, dy, r], i) => {
+    ctx.fillStyle = i % 3 === 0 ? hairHighlight : hairBase;
+    ctx.beginPath();
+    ctx.arc(dx * headR, dy * headR, r * headR, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // gözler
+  ctx.fillStyle = "#2a1a12";
+  ctx.beginPath();
+  ctx.arc(-headR * 0.3, headR * 0.05, headR * 0.1, 0, Math.PI * 2);
+  ctx.arc(headR * 0.3, headR * 0.05, headR * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // konuşurken açılıp kapanan ağız
+  ctx.fillStyle = "#7a2e22";
+  ctx.beginPath();
+  ctx.ellipse(0, headR * 0.5, headR * 0.22, headR * (0.06 + mouthOpen * 0.16), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawPhoneCutscene() {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.fillRect(0, 0, W, H);
+
+  const pw = 220, ph = 380;
+  const px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+
+  // telefon çerçevesi
+  ctx.fillStyle = "#0a0a0a";
+  roundRect(px, py, pw, ph, 28);
+  ctx.fill();
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // ekran
+  const sx = px + 10, sy = py + 26, sw = pw - 20, sh = ph - 52;
+  ctx.save();
+  ctx.beginPath();
+  roundRect(sx, sy, sw, sh, 14);
+  ctx.clip();
+
+  const skyG = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+  skyG.addColorStop(0, "#5fa8dc");
+  skyG.addColorStop(1, "#bfe0f0");
+  ctx.fillStyle = skyG;
+  ctx.fillRect(sx, sy, sw, sh);
+
+  const faceCX = sx + sw / 2;
+  const faceCY = sy + sh / 2 + 10;
+  const tilt = Math.sin(phoneAnimT * 2.2) * 0.22;
+  const mouthOpen = (Math.sin(phoneAnimT * 7) + 1) / 2;
+  drawSelfieFace(faceCX, faceCY, 2.6, tilt, mouthOpen);
+
+  ctx.restore();
+
+  // REC göstergesi
+  if (Math.sin(performance.now() / 180) > 0) {
+    ctx.fillStyle = "#ff3b3b";
+    ctx.beginPath();
+    ctx.arc(sx + 16, sy + 16, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillText("REC " + Math.max(0, Math.ceil(phoneTimer)) + "sn", sx + 26, sy + 20);
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("Video kaydediliyor...", faceCX, py + ph - 16);
+
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.arc(px + pw / 2, py + 14, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function draw() {
   drawBackground();
   drawGround();
@@ -1634,7 +1850,14 @@ function draw() {
     const mx = moto.x - camX;
     if (mx > -80 && mx < W + 80) drawMotoIcon(mx + moto.w / 2, GROUND_Y - 2, 1);
     if (Math.abs(player.x - moto.x) < 220) {
-      drawMotoHint(mx + moto.w / 2, GROUND_Y - moto.h - 6);
+      drawHint(mx + moto.w / 2, GROUND_Y - moto.h - 6, "Motora binebilirsin");
+    }
+  }
+  if (!phone.used) {
+    const phx = phone.x - camX;
+    if (phx > -60 && phx < W + 60) drawPhoneIcon(phx + phone.w / 2, GROUND_Y - phone.h / 2, 1);
+    if (Math.abs(player.x - phone.x) < 200) {
+      drawHint(phx + phone.w / 2, GROUND_Y - phone.h - 16, "Telefonu alabilirsin");
     }
   }
   for (const en of enemies) if (!en.dead) drawEnemy(en);
@@ -1651,6 +1874,10 @@ function draw() {
   } else if (dialogueState === "line2") {
     drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Acıktım...");
   }
+
+  drawFoodNotify();
+
+  if (gameState === "phonecutscene") drawPhoneCutscene();
 }
 
 // ---------- Ana döngü ----------
