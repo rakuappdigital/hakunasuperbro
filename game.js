@@ -122,6 +122,29 @@ const phones = [0.12, 0.45, 0.75].map((frac) => ({
   w: 20, h: 30, used: false,
 }));
 
+// Kontrol noktaları: geçilince bayrak açılır, yeni doğuş noktası olur
+const checkpoints = [];
+for (let x = 1000; x < GOAL_X - 400; x += 1000) {
+  checkpoints.push({ x: nearestGroundX(x), reached: false, pop: 0 });
+}
+
+// Uçan düşmanlar: sahil üstünde devriye gezen kısa boylu güvercinler
+const flyingEnemyDefs = [];
+for (const seg of groundSegs) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 600 || seg.x1 > GOAL_X - 700 || seg.x1 < 400) continue;
+  if (Math.floor(seg.x1 / 900) % 2 !== 0) continue;
+  flyingEnemyDefs.push({
+    x: seg.x1 + segLen * 0.5, x1: seg.x1 + 60, x2: seg.x2 - 60,
+    baseY: GROUND_Y - 170 - (seg.x1 % 60),
+  });
+}
+
+// Gizli bonuslar: platformların üstünde, çift zıplama gerektiren yükseklikte
+const secrets = platforms
+  .filter((_, i) => i % 3 === 1)
+  .map(p => ({ x: p.x + p.w / 2 - 9, y: p.y - 70, w: 18, h: 18, collected: false }));
+
 // ---------- Yardımcılar ----------
 function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -187,10 +210,27 @@ function revertGrowth() {
 
 function shrinkPlayer() {
   if (player.big) {
+    playHurtSound();
+    triggerShake(0.2, 6);
     revertGrowth();
     player.invincible = 2;
   } else {
     loseLife();
+  }
+}
+
+function killEnemy(en) {
+  en.dead = true;
+  combo += 1;
+  comboTimer = 1.4;
+  const bonus = 50 * (combo - 1);
+  score += 100 + bonus;
+  updateHud();
+  playStompSound();
+  spawnParticles(en.x + en.w / 2, en.y + en.h / 2, 8, "#3a3a3a");
+  triggerShake(0.12, 3);
+  if (combo > 1) {
+    comboPopups.push({ x: en.x + en.w / 2, y: en.y, text: "x" + combo + " KOMBO!", timer: 0.9 });
   }
 }
 
@@ -204,9 +244,74 @@ function resetEnemies() {
 }
 resetEnemies();
 
+let flyingEnemies = [];
+function resetFlyingEnemies() {
+  flyingEnemies = flyingEnemyDefs.map(e => ({
+    x: e.x, x1: e.x1, x2: e.x2, baseY: e.baseY, y: e.baseY,
+    w: 20, h: 14, vx: 75, dead: false, bobT: Math.random() * 10,
+  }));
+}
+resetFlyingEnemies();
+
 // ---------- Uçan yiyecekler (power-up) ----------
 let items = [];
 let foodNotify = null;
+let bonusNotify = null;
+
+// ---------- Kombo ----------
+let combo = 0;
+let comboTimer = 0;
+let comboPopups = [];
+
+// ---------- Parçacıklar & ekran sarsıntısı ----------
+let particles = [];
+let shakeTime = 0;
+let shakeMag = 0;
+function triggerShake(duration, magnitude) {
+  shakeTime = Math.max(shakeTime, duration);
+  shakeMag = Math.max(shakeMag, magnitude);
+}
+function spawnParticles(x, y, count, color) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const speed = 60 + Math.random() * 120;
+    particles.push({
+      x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - 40,
+      life: 0.4 + Math.random() * 0.3, maxLife: 0.7, color, size: 2 + Math.random() * 2,
+    });
+  }
+}
+
+// ---------- Ses efektleri (WebAudio, dosya gerekmez) ----------
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+function beep(freq, duration, type, volume, startDelay, freqEnd) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || "sine";
+  const t0 = audioCtx.currentTime + (startDelay || 0);
+  osc.frequency.setValueAtTime(freq, t0);
+  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, t0 + duration);
+  gain.gain.setValueAtTime(volume || 0.2, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration);
+}
+function playJumpSound() { beep(340, 0.14, "square", 0.12, 0, 620); }
+function playCollectSound() { beep(700, 0.09, "square", 0.12, 0); beep(1000, 0.1, "square", 0.12, 0.08); }
+function playStompSound() { beep(180, 0.1, "square", 0.16, 0, 70); }
+function playHurtSound() { beep(220, 0.22, "sawtooth", 0.14, 0, 70); }
+function playCheckpointSound() { beep(660, 0.1, "sine", 0.14, 0); beep(880, 0.14, "sine", 0.14, 0.1); }
+function playSecretSound() { beep(520, 0.08, "sine", 0.14, 0); beep(780, 0.08, "sine", 0.14, 0.07); beep(1040, 0.14, "sine", 0.14, 0.14); }
 
 // ---------- Kamera ----------
 let camX = 0;
@@ -284,6 +389,9 @@ sendBtn.addEventListener("click", () => {
 });
 
 function loseLife() {
+  playHurtSound();
+  triggerShake(0.25, 7);
+  combo = 0; comboTimer = 0;
   lives -= 1;
   updateHud();
   if (lives <= 0) {
@@ -352,6 +460,7 @@ const bgMusic = new Audio("mario.mp3");
 bgMusic.loop = true;
 
 function startGame() {
+  ensureAudio();
   score = 0; lives = 3;
   player.big = false; player.w = BASE_W; player.h = BASE_H;
   player.respawnX = 0;
@@ -364,7 +473,14 @@ function startGame() {
   sendBtn.classList.add("hidden");
   items = [];
   foodNotify = null;
+  bonusNotify = null;
+  combo = 0; comboTimer = 0; comboPopups = [];
+  particles = [];
+  shakeTime = 0; shakeMag = 0;
+  checkpoints.forEach(c => { c.reached = false; c.pop = 0; });
+  secrets.forEach(s => s.collected = false);
   resetEnemies();
+  resetFlyingEnemies();
   camX = 0;
   winTimer = 0;
   gameState = "playing";
@@ -444,6 +560,7 @@ function update(dt) {
     player.vy = player.jumpsUsed === 0 ? base : base * 1.12;
     player.jumpsUsed++;
     player.onGround = false;
+    playJumpSound();
   }
   jumpHeld = jumpKey;
 
@@ -499,6 +616,30 @@ function update(dt) {
     }
   }
 
+  // Kontrol noktaları
+  for (const c of checkpoints) {
+    if (!c.reached && player.x >= c.x) {
+      c.reached = true;
+      c.pop = 0.6;
+      player.respawnX = Math.max(player.respawnX, c.x);
+      playCheckpointSound();
+      spawnParticles(c.x, GROUND_Y - 70, 10, "#ffcc00");
+    }
+  }
+
+  // Gizli bonuslar
+  for (const s of secrets) {
+    if (s.collected) continue;
+    if (rectsOverlap(playerRect(), { x: s.x, y: s.y, w: s.w, h: s.h })) {
+      s.collected = true;
+      score += 300;
+      updateHud();
+      playSecretSound();
+      spawnParticles(s.x + s.w / 2, s.y + s.h / 2, 14, "#7fd1e0");
+      bonusNotify = { text: "GİZLİ BONUS! +300", timer: 1.8 };
+    }
+  }
+
   // Çukura düşme
   if (player.y > H + 100) {
     loseLife();
@@ -527,20 +668,39 @@ function update(dt) {
     if (rectsOverlap(pr, er)) {
       const stomping = player.vy > 0 && (pr.y + pr.h) - er.y < 18;
       if (player.riding) {
-        en.dead = true;
-        score += 100;
-        updateHud();
+        killEnemy(en);
       } else if (stomping) {
-        en.dead = true;
         player.vy = JUMP_V * 0.55;
-        score += 100;
-        updateHud();
+        killEnemy(en);
       } else if (player.invincible <= 0) {
         shrinkPlayer();
       }
     }
   }
   enemies = enemies.filter(e => !e.dead || e._t !== undefined);
+
+  // Uçan düşmanları (güvercinler) güncelle
+  for (const en of flyingEnemies) {
+    if (en.dead) continue;
+    en.bobT += dt;
+    en.x += en.vx * dt;
+    if (en.x < en.x1) { en.x = en.x1; en.vx = Math.abs(en.vx); }
+    if (en.x + en.w > en.x2) { en.x = en.x2 - en.w; en.vx = -Math.abs(en.vx); }
+    en.y = en.baseY + Math.sin(en.bobT * 1.6) * 26;
+
+    const er = { x: en.x, y: en.y, w: en.w, h: en.h };
+    const pr = playerRect();
+    if (rectsOverlap(pr, er)) {
+      const stomping = player.vy > 0 && (pr.y + pr.h) - er.y < 16;
+      if (player.riding || stomping) {
+        if (!player.riding) player.vy = JUMP_V * 0.5;
+        killEnemy(en);
+      } else if (player.invincible <= 0) {
+        shrinkPlayer();
+      }
+    }
+  }
+  flyingEnemies = flyingEnemies.filter(e => !e.dead);
 
   // Item (yiyecek) güncelle
   for (const it of items) {
@@ -567,10 +727,37 @@ function update(dt) {
       updateHud();
       it.collected = true;
       foodNotify = { food: it.food, timer: 2.2 };
+      playCollectSound();
+      spawnParticles(it.x + it.w / 2, it.y + it.h / 2, 10, "#ffe07a");
+      triggerShake(0.1, 2);
     }
   }
   items = items.filter(i => !i.collected && i.x < player.x + 1400);
   if (foodNotify && foodNotify.timer > 0) foodNotify.timer -= dt;
+  if (bonusNotify && bonusNotify.timer > 0) bonusNotify.timer -= dt;
+
+  // Kombo süresi
+  if (comboTimer > 0) {
+    comboTimer -= dt;
+    if (comboTimer <= 0) combo = 0;
+  }
+  for (const p of comboPopups) { p.timer -= dt; p.y -= 30 * dt; }
+  comboPopups = comboPopups.filter(p => p.timer > 0);
+
+  // Kontrol noktası pop animasyonu
+  for (const c of checkpoints) if (c.pop > 0) c.pop -= dt;
+
+  // Parçacıklar
+  for (const p of particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 500 * dt;
+    p.life -= dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+
+  // Ekran sarsıntısı
+  if (shakeTime > 0) shakeTime -= dt; else shakeMag = 0;
 
   // Kamera
   camX = Math.max(0, player.x - W / 2 + player.w / 2);
@@ -1900,13 +2087,144 @@ function drawPhoneCutscene() {
   ctx.restore();
 }
 
+function drawCheckpoint(c) {
+  const x = c.x - camX;
+  if (x < -40 || x > W + 40) return;
+  const poleH = 70;
+  const scale = 1 + (c.pop > 0 ? Math.sin(((0.6 - c.pop) / 0.6) * Math.PI) * 0.3 : 0);
+  ctx.fillStyle = "#888";
+  ctx.fillRect(x - 2, GROUND_Y - poleH, 4, poleH);
+  ctx.save();
+  ctx.translate(x, GROUND_Y - poleH + 8);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = c.reached ? "#ffcc00" : "#666";
+  ctx.beginPath();
+  ctx.moveTo(0, -8);
+  ctx.lineTo(24, -2);
+  ctx.lineTo(0, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFlyingEnemy(en) {
+  const x = en.x - camX;
+  if (x + en.w < 0 || x > W) return;
+  const flap = Math.sin(en.bobT * 12);
+
+  ctx.fillStyle = "rgba(0,0,0,0.12)";
+  ctx.beginPath();
+  ctx.ellipse(x + en.w / 2, GROUND_Y + 2, en.w * 0.35, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(x + en.w / 2, en.y + en.h / 2);
+  ctx.scale(en.vx < 0 ? 1 : -1, 1);
+  // kanat
+  ctx.fillStyle = "#6b7480";
+  ctx.beginPath();
+  ctx.moveTo(-1, 0);
+  ctx.lineTo(-en.w * 0.55, -en.h * 0.9 * flap - 2);
+  ctx.lineTo(2, 3);
+  ctx.closePath();
+  ctx.fill();
+  // gövde
+  ctx.fillStyle = "#8892a0";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, en.w * 0.42, en.h * 0.42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // kafa
+  ctx.fillStyle = "#a4adb8";
+  ctx.beginPath();
+  ctx.arc(en.w * 0.38, -en.h * 0.18, en.h * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  // gaga
+  ctx.fillStyle = "#e0a030";
+  ctx.beginPath();
+  ctx.moveTo(en.w * 0.6, -en.h * 0.18);
+  ctx.lineTo(en.w * 0.8, -en.h * 0.12);
+  ctx.lineTo(en.w * 0.6, -en.h * 0.06);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSecret(s) {
+  const x = s.x - camX + s.w / 2, y = s.y + s.h / 2;
+  if (x < -30 || x > W + 30) return;
+  const pulse = 0.85 + Math.sin(performance.now() / 150) * 0.15;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(performance.now() / 900);
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = "#ffd700";
+  ctx.strokeStyle = "#c8960a";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a1 = (i / 5) * Math.PI * 2 - Math.PI / 2;
+    const a2 = a1 + Math.PI / 5;
+    ctx.lineTo(Math.cos(a1) * 9, Math.sin(a1) * 9);
+    ctx.lineTo(Math.cos(a2) * 4, Math.sin(a2) * 4);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawParticlesLayer() {
+  for (const p of particles) {
+    const x = p.x - camX, y = p.y;
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(x - p.size / 2, y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawComboPopupsLayer() {
+  ctx.textAlign = "center";
+  ctx.font = "bold 14px Trebuchet MS";
+  for (const p of comboPopups) {
+    ctx.globalAlpha = Math.max(0, p.timer / 0.9);
+    ctx.strokeStyle = "#7a4a00";
+    ctx.lineWidth = 3;
+    const x = p.x - camX, y = p.y;
+    ctx.strokeText(p.text, x, y);
+    ctx.fillStyle = "#ffcc00";
+    ctx.fillText(p.text, x, y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBonusNotify() {
+  if (!bonusNotify || bonusNotify.timer <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, bonusNotify.timer * 2);
+  ctx.font = "bold 20px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#000";
+  ctx.fillText(bonusNotify.text, W / 2 + 2, 82);
+  ctx.fillStyle = "#ffd700";
+  ctx.fillText(bonusNotify.text, W / 2, 80);
+  ctx.restore();
+}
+
 function draw() {
+  ctx.save();
+  if (shakeTime > 0) {
+    ctx.translate((Math.random() - 0.5) * 2 * shakeMag, (Math.random() - 0.5) * 2 * shakeMag);
+  }
+
   drawBackground();
   drawGround();
   drawProps();
+  for (const c of checkpoints) drawCheckpoint(c);
   for (const s of signs) drawSign(s.x, s.text);
   drawPlatforms();
   for (const b of boxes) drawBox(b);
+  for (const s of secrets) if (!s.collected) drawSecret(s);
   if (!moto.used) {
     const mx = moto.x - camX;
     if (mx > -80 && mx < W + 80) drawMotoIcon(mx + moto.w / 2, GROUND_Y - 2, 1);
@@ -1923,6 +2241,7 @@ function draw() {
     }
   }
   for (const en of enemies) if (!en.dead) drawEnemy(en);
+  for (const en of flyingEnemies) if (!en.dead) drawFlyingEnemy(en);
   for (const it of items) drawItem(it);
   drawGoal();
   drawManGreeter(GOAL_X - 60 - camX);
@@ -1930,6 +2249,8 @@ function draw() {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
   }
   drawPlayer();
+  drawParticlesLayer();
+  drawComboPopupsLayer();
 
   if (dialogueState === "line1") {
     drawSpeechBubble(GREETER_X - camX, GROUND_Y - 88, "NE YÜRÜDÜN YİNE YA");
@@ -1937,7 +2258,10 @@ function draw() {
     drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Acıktım...");
   }
 
+  ctx.restore();
+
   drawFoodNotify();
+  drawBonusNotify();
 
   if (gameState === "phonecutscene") drawPhoneCutscene();
 }
