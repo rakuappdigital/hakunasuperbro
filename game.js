@@ -352,6 +352,7 @@ function playCheckpointSound() { beep(660, 0.1, "sine", 0.14, 0); beep(880, 0.14
 function playSecretSound() { beep(520, 0.08, "sine", 0.14, 0); beep(780, 0.08, "sine", 0.14, 0.07); beep(1040, 0.14, "sine", 0.14, 0.14); }
 function playBreakSound() { beep(140, 0.12, "sawtooth", 0.16, 0, 55); }
 function playPipeSound() { beep(200, 0.08, "square", 0.14, 0, 400); beep(400, 0.1, "square", 0.12, 0.08, 200); }
+function playHeartSound() { beep(500, 0.1, "sine", 0.12, 0); beep(750, 0.12, "sine", 0.12, 0.08); }
 
 // ---------- Kamera ----------
 let camX = 0;
@@ -386,6 +387,12 @@ let jumpHeld = false;
 let winTimer = 0;
 let dialogueState = "none"; // none | line1 | line2 | done
 let dialogueTimer = 0;
+let manX = GREETER_X;
+let endingPhase = "none"; // none | hearts | dialogue1 | manwalk | done
+let heartsThrown = 0;
+let heartTimer = 0;
+let hearts = [];
+const spiderman = { x: nearestGroundX(LEVEL_END * 0.58), phase: "idle", t: 0 };
 let phoneTimer = 0;
 let phoneAnimT = 0;
 let phonePhase = "recording"; // recording | sending
@@ -540,7 +547,7 @@ function showWinStep1() {
 function showWinStep2() {
   setOverlay({
     title: "",
-    text: "BİRA İÇMEYE GİDELİM Mİ?",
+    text: "Bİ ŞEYLER YAPALIM MI?",
     marioFont: true,
     buttons: [
       { label: "TAMAM", onClick: () => { window.location.href = "https://ayarlayici.vercel.app"; } },
@@ -569,6 +576,10 @@ function startGame() {
   player.respawnX = 0;
   player.riding = false; player.rideTimer = 0; player.glow = 0; player.beerTimer = 0;
   dialogueState = "none"; dialogueTimer = 0;
+  manX = GREETER_X;
+  endingPhase = "none";
+  heartsThrown = 0; heartTimer = 0; hearts = [];
+  spiderman.phase = "idle"; spiderman.t = 0;
   respawnPlayer();
   boxes.forEach(b => b.used = false);
   moto.used = false;
@@ -691,15 +702,59 @@ function update(dt) {
   // checkpoint ilerlemesi
   if (player.x - 40 > player.respawnX) player.respawnX = Math.max(player.respawnX, Math.floor(player.x / 400) * 400);
 
-  // Kadınla karşılaşma diyaloğu
-  if (dialogueState === "none" && player.x + player.w >= GREETER_X - 15) {
+  // Final: kalp fırlatma + karşılaşma diyaloğu
+  if (endingPhase === "none" && player.x + player.w >= GREETER_X - 260) {
+    endingPhase = "hearts";
+    heartsThrown = 0;
+    heartTimer = 0.6;
+  }
+  if (endingPhase === "hearts") {
+    heartTimer -= dt;
+    if (heartTimer <= 0 && heartsThrown < 5) {
+      const fromTop = heartsThrown % 2 === 0;
+      hearts.push({
+        x: Math.max(20, Math.min(LEVEL_END - 20, player.x + player.w / 2 + (Math.random() * 140 - 70))),
+        y: fromTop ? -20 : GROUND_Y + 20,
+        vy: fromTop ? 150 : -150,
+        w: 18, h: 16,
+      });
+      heartsThrown++;
+      heartTimer = 0.85;
+      playHeartSound();
+    }
+    if (heartsThrown >= 5 && hearts.length === 0) {
+      endingPhase = "dialogue1";
+    }
+  }
+  for (const h of hearts) h.y += h.vy * dt;
+  for (const h of hearts) {
+    if (!h.hit && rectsOverlap(playerRect(), { x: h.x - h.w / 2, y: h.y - h.h / 2, w: h.w, h: h.h })) {
+      h.hit = true;
+      spawnParticles(h.x, h.y, 8, "#ff5577");
+      triggerShake(0.08, 2);
+    }
+  }
+  hearts = hearts.filter(h => !h.hit && h.y > -40 && h.y < H + 40);
+
+  if (endingPhase === "dialogue1" && dialogueState === "none" && player.x + player.w >= GREETER_X - 15) {
     dialogueState = "line1";
     dialogueTimer = 0;
   }
   if (dialogueState === "line1" || dialogueState === "line2") {
     dialogueTimer += dt;
     if (dialogueState === "line1" && dialogueTimer > 2.6) { dialogueState = "line2"; dialogueTimer = 0; }
-    else if (dialogueState === "line2" && dialogueTimer > 2.6) { dialogueState = "done"; }
+    else if (dialogueState === "line2" && dialogueTimer > 2.6) {
+      dialogueState = "done";
+      endingPhase = "manwalk";
+    }
+  }
+  if (endingPhase === "manwalk") {
+    const targetX = GOAL_X - 80;
+    if (manX < targetX) {
+      manX += 90 * dt;
+    } else {
+      endingPhase = "done";
+    }
   }
   const dialogueFreeze = dialogueState === "line1" || dialogueState === "line2";
 
@@ -819,6 +874,22 @@ function update(dt) {
     }
   }
   downHeld = down;
+
+  // Spider-Man kamesi
+  if (spiderman.phase === "idle" && Math.abs(player.x - spiderman.x) < 150) {
+    spiderman.phase = "down";
+    spiderman.t = 0;
+  }
+  if (spiderman.phase === "down") {
+    spiderman.t += dt;
+    if (spiderman.t > 1) { spiderman.phase = "hang"; spiderman.t = 0; }
+  } else if (spiderman.phase === "hang") {
+    spiderman.t += dt;
+    if (spiderman.t > 2.6) { spiderman.phase = "up"; spiderman.t = 0; }
+  } else if (spiderman.phase === "up") {
+    spiderman.t += dt;
+    if (spiderman.t > 1) spiderman.phase = "done";
+  }
 
   // Motosiklete binme
   if (!moto.used) {
@@ -1978,10 +2049,80 @@ function drawMotoIcon(x, y, scale) {
   ctx.restore();
 }
 
-function drawManGreeter(gx) {
+function drawHeart(x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "#ff4d6d";
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.35);
+  ctx.bezierCurveTo(size * 0.6, -size * 0.5, size * 1.3, size * 0.25, 0, size * 1.1);
+  ctx.bezierCurveTo(-size * 1.3, size * 0.25, -size * 0.6, -size * 0.5, 0, size * 0.35);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.beginPath();
+  ctx.ellipse(-size * 0.3, size * 0.1, size * 0.18, size * 0.1, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHeartsLayer() {
+  for (const h of hearts) {
+    const x = h.x - camX;
+    if (x < -30 || x > W + 30) continue;
+    drawHeart(x, h.y, 9);
+  }
+}
+
+function drawSpidermanCameo() {
+  const x = spiderman.x - camX;
+  if (x < -100 || x > W + 100) return;
+  const hangDrop = 130;
+  let drop;
+  if (spiderman.phase === "down") drop = hangDrop * Math.min(1, spiderman.t / 1);
+  else if (spiderman.phase === "hang") drop = hangDrop;
+  else drop = hangDrop * Math.max(0, 1 - spiderman.t / 1);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, drop);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(x, drop);
+  ctx.rotate(Math.PI);
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(-9, 0, 18, 26);
+  ctx.fillStyle = "#1c3a8a";
+  ctx.fillRect(-14, 4, 6, 16);
+  ctx.fillRect(8, 4, 6, 16);
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.arc(0, 30, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#8a1f18";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-9, 8); ctx.lineTo(9, 8);
+  ctx.moveTo(-9, 16); ctx.lineTo(9, 16);
+  ctx.moveTo(-5, 22); ctx.lineTo(5, 22);
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(-3, 30, 4, 3, -0.3, 0, Math.PI * 2);
+  ctx.ellipse(4, 30, 4, 3, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  if (spiderman.phase === "hang") {
+    drawSpeechBubble(x, drop - 44, "FİLMİM GAYET GÜZEL VE 10 ÜZERİNDEN EN AZ 8!!");
+  }
+}
+
+function drawManGreeter(x) {
   const baseY = GROUND_Y;
   const bob = Math.sin(performance.now() / 400) * 3;
-  const x = gx - 190;
   const y = baseY - 84 + bob * 0.2;
 
   // gölge
@@ -2640,7 +2781,9 @@ function draw() {
   for (const en of flyingEnemies) if (!en.dead) drawFlyingEnemy(en);
   for (const it of items) drawItem(it);
   drawGoal();
-  drawManGreeter(GOAL_X - 60 - camX);
+  drawManGreeter(manX - camX);
+  drawHeartsLayer();
+  if (spiderman.phase !== "idle" && spiderman.phase !== "done") drawSpidermanCameo();
   if (player.riding) {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
   }
@@ -2649,9 +2792,9 @@ function draw() {
   drawComboPopupsLayer();
 
   if (dialogueState === "line1") {
-    drawSpeechBubble(GREETER_X - camX, GROUND_Y - 88, "NE YÜRÜDÜN YİNE YA");
+    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "NEDEN LOVEBOMBING YAPIYORSUN?");
   } else if (dialogueState === "line2") {
-    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "Acıktım...");
+    drawSpeechBubble(manX - camX, GROUND_Y - 88, "YAPMIYORUM?");
   }
 
   ctx.restore();
