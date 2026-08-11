@@ -59,6 +59,8 @@ for (const seg of groundSegs) {
   const pw = 120 + ((Math.abs(seg.x1) * 13) % 60);
   platforms.push({ x: px, y: py, w: pw, h: 22 });
 }
+// Bazı platformlar kırılabilir (kutu olmayanların bir kısmı)
+platforms.forEach((p, i) => { p.breakable = i % 4 === 1; p.broken = false; });
 
 // Tabelalar: tüm yola eşit yayılmış
 const signTexts = ["FERAH MAHALLESİ", "KÜPLÜCE", "BURHANİYE", "BEYLERBEYİ", "KUZGUNCUK"];
@@ -122,6 +124,27 @@ const phones = [0.12, 0.45, 0.75].map((frac) => ({
   w: 20, h: 30, used: false,
 }));
 
+// Susamlı simit paralar: yolun genelinde küçük kümeler halinde
+const coins = [];
+for (const seg of groundSegs) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 400) continue;
+  const baseX = seg.x1 + segLen * 0.68;
+  for (let i = 0; i < 4; i++) {
+    coins.push({
+      x: baseX + i * 24,
+      y: GROUND_Y - 96 - Math.sin((i / 3) * Math.PI) * 26,
+      w: 18, h: 18, collected: false,
+    });
+  }
+}
+
+// Dev borular: "5 YILDIZLI MEKAN" bonus odasına açılır
+const pipes = [0.32, 0.7].map((frac) => ({
+  x: nearestGroundX(LEVEL_END * frac),
+  y: GROUND_Y - 72, w: 58, h: 72,
+}));
+
 // Kontrol noktaları: geçilince bayrak açılır, yeni doğuş noktası olur
 const checkpoints = [];
 for (let x = 1000; x < GOAL_X - 400; x += 1000) {
@@ -156,6 +179,7 @@ function solidRectsAt() {
     rects.push({ x: g.x1, y: GROUND_Y, w: g.x2 - g.x1, h: 300 });
   }
   for (const p of platforms) rects.push(p);
+  for (const p of pipes) rects.push(p);
   return rects;
 }
 const solids = solidRectsAt();
@@ -170,7 +194,21 @@ const player = {
   facing: 1, invincible: 0, dead: false,
   respawnX: 0, jumpsUsed: 0, animT: 0,
   riding: false, rideTimer: 0, glow: 0, beerTimer: 0,
+  crouching: false, crouchFullH: 0,
 };
+
+function setCrouch(isCrouch) {
+  if (isCrouch === player.crouching) return;
+  const oldH = player.h;
+  if (isCrouch) {
+    player.crouchFullH = player.h;
+    player.h = Math.round(player.h * 0.6);
+  } else {
+    player.h = player.crouchFullH || player.h;
+  }
+  player.y += (oldH - player.h);
+  player.crouching = isCrouch;
+}
 
 function playerRect() {
   return { x: player.x, y: player.y, w: player.w, h: player.h };
@@ -312,6 +350,8 @@ function playStompSound() { beep(180, 0.1, "square", 0.16, 0, 70); }
 function playHurtSound() { beep(220, 0.22, "sawtooth", 0.14, 0, 70); }
 function playCheckpointSound() { beep(660, 0.1, "sine", 0.14, 0); beep(880, 0.14, "sine", 0.14, 0.1); }
 function playSecretSound() { beep(520, 0.08, "sine", 0.14, 0); beep(780, 0.08, "sine", 0.14, 0.07); beep(1040, 0.14, "sine", 0.14, 0.14); }
+function playBreakSound() { beep(140, 0.12, "sawtooth", 0.16, 0, 55); }
+function playPipeSound() { beep(200, 0.08, "square", 0.14, 0, 400); beep(400, 0.1, "square", 0.12, 0.08, 200); }
 
 // ---------- Kamera ----------
 let camX = 0;
@@ -351,6 +391,9 @@ let phoneAnimT = 0;
 let phonePhase = "recording"; // recording | sending
 let phoneSendTimer = 0;
 let prevGameState = "playing";
+let downHeld = false;
+let simitCount = 0;
+let bonusRoom = null;
 
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlay-title");
@@ -359,7 +402,64 @@ const overlayButtons = document.getElementById("overlay-buttons");
 const scoreEl = document.getElementById("score");
 const livesEl = document.getElementById("lives");
 const motoEl = document.getElementById("moto");
+const simitEl = document.getElementById("simit");
 const sendBtn = document.getElementById("send-btn");
+
+const BONUS_ROOM_FOOD_COUNT = 7;
+
+function enterPipe(p) {
+  playCheckpointSound();
+  const floorY = 460;
+  const exitPipe = { x: W - 150, y: floorY - 70, w: 58, h: 70 };
+  const roomSolids = [
+    { x: -50, y: floorY, w: W + 100, h: 120 },
+    exitPipe,
+  ];
+  const roomItems = [];
+  for (let i = 0; i < BONUS_ROOM_FOOD_COUNT; i++) {
+    const rx = 130 + i * 100;
+    const ry = floorY - 90 - (i % 3) * 46;
+    roomItems.push({
+      x: rx, y: ry, w: 26, h: 32,
+      food: FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)],
+      collected: false, bobT: Math.random() * 10,
+    });
+  }
+  bonusRoom = {
+    solids: roomSolids,
+    items: roomItems,
+    exitPipe,
+    floorY,
+    returnX: player.x,
+    returnRespawnX: player.respawnX,
+  };
+  player.x = 60;
+  player.y = floorY - player.h;
+  player.vx = 0; player.vy = 0;
+  if (player.crouching) setCrouch(false);
+  player.jumpsUsed = 0;
+  camX = 0;
+  gameState = "bonusroom";
+
+  bgMusic.pause();
+  pipeMusic.currentTime = 0;
+  pipeMusic.play().catch(() => {});
+}
+
+function exitBonusRoom() {
+  player.x = bonusRoom.returnX + 60;
+  player.y = GROUND_Y - player.h;
+  player.respawnX = bonusRoom.returnRespawnX;
+  player.vx = 0; player.vy = 0;
+  if (player.crouching) setCrouch(false);
+  player.jumpsUsed = 0;
+  bonusRoom = null;
+  gameState = "playing";
+  camX = Math.max(0, Math.min(player.x - W / 2 + player.w / 2, LEVEL_END - W + 250));
+
+  pipeMusic.pause();
+  bgMusic.play().catch(() => {});
+}
 
 function startPhoneCutscene(ph) {
   ph.used = true;
@@ -409,6 +509,7 @@ function loseLife() {
 function updateHud() {
   scoreEl.textContent = "SKOR: " + score;
   livesEl.textContent = "CAN: " + lives;
+  simitEl.textContent = "🥯 " + simitCount;
 }
 
 function setOverlay({ title = "", text = "", buttons = [], marioFont = false }) {
@@ -458,6 +559,8 @@ function showWinStep3() {
 
 const bgMusic = new Audio("mario.mp3");
 bgMusic.loop = true;
+const pipeMusic = new Audio("mariooo.mp3");
+pipeMusic.loop = true;
 
 function startGame() {
   ensureAudio();
@@ -479,6 +582,12 @@ function startGame() {
   shakeTime = 0; shakeMag = 0;
   checkpoints.forEach(c => { c.reached = false; c.pop = 0; });
   secrets.forEach(s => s.collected = false);
+  coins.forEach(c => c.collected = false);
+  platforms.forEach(p => p.broken = false);
+  simitCount = 0;
+  bonusRoom = null;
+  downHeld = false;
+  if (player.crouching) setCrouch(false);
   resetEnemies();
   resetFlyingEnemies();
   camX = 0;
@@ -486,6 +595,7 @@ function startGame() {
   gameState = "playing";
   updateHud();
   overlay.classList.add("hidden");
+  pipeMusic.pause();
   bgMusic.currentTime = 0;
   bgMusic.play().catch(() => {});
 }
@@ -510,6 +620,72 @@ function update(dt) {
     }
     return;
   }
+
+  if (gameState === "bonusroom") {
+    const down = keys["ArrowDown"] || keys["KeyS"];
+    const left = keys["ArrowLeft"] || keys["KeyA"] || touchLeft;
+    const right = keys["ArrowRight"] || keys["KeyD"] || touchRight;
+    const jumpKey = keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump;
+
+    player.vx = 0;
+    if (!player.crouching) {
+      if (left) { player.vx = -MOVE_SPEED; player.facing = -1; }
+      if (right) { player.vx = MOVE_SPEED; player.facing = 1; }
+    }
+    if (Math.abs(player.vx) > 5 && player.onGround) {
+      player.animT += dt * (7 + Math.abs(player.vx) / 90);
+    } else if (player.onGround) {
+      player.animT += dt * 1.4;
+    }
+
+    if (jumpKey && !jumpHeld && player.jumpsUsed < 2 && !player.crouching) {
+      player.vy = JUMP_V;
+      player.jumpsUsed++;
+      player.onGround = false;
+      playJumpSound();
+    }
+    jumpHeld = jumpKey;
+
+    player.vy += GRAVITY * dt;
+    if (player.vy > 1200) player.vy = 1200;
+
+    player.x += player.vx * dt;
+    player.x = Math.max(10, Math.min(player.x, W - 10 - player.w));
+    resolveCollisions("x", bonusRoom.solids);
+
+    player.y += player.vy * dt;
+    player.onGround = false;
+    resolveCollisions("y", bonusRoom.solids);
+
+    if (down && player.onGround && !player.crouching) setCrouch(true);
+    else if (!down && player.crouching) setCrouch(false);
+
+    const ep = bonusRoom.exitPipe;
+    const onExitPipe = player.onGround &&
+      player.x + player.w > ep.x + 6 && player.x < ep.x + ep.w - 6 &&
+      Math.abs(player.y + player.h - ep.y) < 8;
+    if (down && !downHeld && onExitPipe) {
+      playPipeSound();
+      exitBonusRoom();
+      downHeld = down;
+      return;
+    }
+    downHeld = down;
+
+    for (const it of bonusRoom.items) {
+      if (it.collected) continue;
+      it.bobT += dt;
+      if (rectsOverlap(playerRect(), { x: it.x, y: it.y, w: it.w, h: it.h })) {
+        it.collected = true;
+        score += 150;
+        updateHud();
+        playCollectSound();
+        spawnParticles(it.x + it.w / 2, it.y + it.h / 2, 10, "#ffe07a");
+      }
+    }
+    return;
+  }
+
   if (gameState !== "playing") return;
 
   // checkpoint ilerlemesi
@@ -527,10 +703,16 @@ function update(dt) {
   }
   const dialogueFreeze = dialogueState === "line1" || dialogueState === "line2";
 
-  const left = !dialogueFreeze && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
-  const right = !dialogueFreeze && (keys["ArrowRight"] || keys["KeyD"] || touchRight);
-  const jumpKey = !dialogueFreeze && (keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump);
+  const down = !dialogueFreeze && (keys["ArrowDown"] || keys["KeyS"]);
+  const left = !dialogueFreeze && !player.crouching && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
+  const right = !dialogueFreeze && !player.crouching && (keys["ArrowRight"] || keys["KeyD"] || touchRight);
+  const jumpKey = !dialogueFreeze && !player.crouching && (keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump);
   const running = keys["ShiftLeft"] || keys["ShiftRight"];
+
+  if (!player.riding) {
+    if (down && player.onGround && !player.crouching) setCrouch(true);
+    else if (!down && player.crouching) setCrouch(false);
+  }
 
   const rideMult = player.riding ? 2.3 : 1;
   const speed = (running ? RUN_SPEED : MOVE_SPEED) * rideMult;
@@ -573,6 +755,7 @@ function update(dt) {
   resolveCollisions("x");
 
   // Y hareketi + çarpışma
+  const wasRising = player.vy < 0;
   player.y += player.vy * dt;
   player.onGround = false;
   resolveCollisions("y");
@@ -594,6 +777,48 @@ function update(dt) {
       }
     }
   }
+
+  // Kırılabilir platformlara alttan vurma
+  for (const p of platforms) {
+    if (!p.breakable || p.broken) continue;
+    const pr = playerRect();
+    const xOverlap = pr.x + pr.w > p.x && pr.x < p.x + p.w;
+    if (wasRising && xOverlap && Math.abs(pr.y - (p.y + p.h)) < 6) {
+      p.broken = true;
+      player.vy = 40;
+      score += 20;
+      updateHud();
+      playBreakSound();
+      spawnParticles(p.x + p.w / 2, p.y + p.h / 2, 14, "#b98a52");
+      triggerShake(0.15, 3);
+    }
+  }
+
+  // Simit paraları toplama
+  for (const c of coins) {
+    if (c.collected) continue;
+    if (rectsOverlap(playerRect(), { x: c.x, y: c.y, w: c.w, h: c.h })) {
+      c.collected = true;
+      simitCount++;
+      score += 10;
+      updateHud();
+      playCollectSound();
+    }
+  }
+
+  // Boruya girme
+  for (const p of pipes) {
+    const onPipe = player.onGround &&
+      player.x + player.w > p.x + 6 && player.x < p.x + p.w - 6 &&
+      Math.abs(player.y + player.h - p.y) < 8;
+    if (down && !downHeld && onPipe) {
+      playPipeSound();
+      enterPipe(p);
+      downHeld = down;
+      return;
+    }
+  }
+  downHeld = down;
 
   // Motosiklete binme
   if (!moto.used) {
@@ -764,9 +989,11 @@ function update(dt) {
   camX = Math.min(camX, LEVEL_END - W + 250);
 }
 
-function resolveCollisions(axis) {
+function resolveCollisions(axis, solidsList) {
+  const list = solidsList || solids;
   const pr = playerRect();
-  for (const s of solids) {
+  for (const s of list) {
+    if (s.broken) continue;
     if (!rectsOverlap(pr, s)) continue;
     if (axis === "x") {
       if (player.vx > 0) player.x = s.x - player.w;
@@ -1264,6 +1491,7 @@ function drawTofas(x) {
 
 function drawPlatforms() {
   for (const p of platforms) {
+    if (p.broken) continue;
     const x = p.x - camX;
     if (x + p.w < 0 || x > W) continue;
     ctx.fillStyle = "rgba(0,0,0,0.15)";
@@ -1271,15 +1499,86 @@ function drawPlatforms() {
     ctx.ellipse(x + p.w / 2, GROUND_Y + 4, p.w * 0.4, 5, 0, 0, Math.PI * 2);
     ctx.fill();
     const grad = ctx.createLinearGradient(x, p.y, x, p.y + p.h);
-    grad.addColorStop(0, "#c9986a");
-    grad.addColorStop(1, "#8a6136");
+    grad.addColorStop(0, p.breakable ? "#c97a5a" : "#c9986a");
+    grad.addColorStop(1, p.breakable ? "#8a4a30" : "#8a6136");
     ctx.fillStyle = grad;
     ctx.fillRect(x, p.y, p.w, p.h);
     ctx.fillStyle = "rgba(255,255,255,0.25)";
     ctx.fillRect(x, p.y, p.w, 3);
-    ctx.fillStyle = "#6b4a28";
+    ctx.fillStyle = p.breakable ? "#5a2c18" : "#6b4a28";
     ctx.fillRect(x, p.y + p.h - 4, p.w, 4);
+    if (p.breakable) {
+      ctx.strokeStyle = "rgba(60,25,10,0.55)";
+      ctx.lineWidth = 1;
+      for (let bx = 8; bx < p.w; bx += 15) {
+        ctx.beginPath();
+        ctx.moveTo(x + bx, p.y + 2);
+        ctx.lineTo(x + bx, p.y + p.h - 2);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.moveTo(x + 2, p.y + p.h / 2);
+      ctx.lineTo(x + p.w - 2, p.y + p.h / 2);
+      ctx.stroke();
+    }
   }
+}
+
+function drawCoin(c) {
+  const x = c.x - camX;
+  if (x + c.w < 0 || x > W) return;
+  const bob = Math.sin(performance.now() / 260 + c.x) * 3;
+  drawFoodIcon("simit", x + c.w / 2, c.y + c.h / 2 + bob, c.w, c.h);
+}
+
+function drawPipeShape(x, y, w, h, shadowY, showSign) {
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, shadowY, w * 0.55, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const grad = ctx.createLinearGradient(x, y, x + w, y);
+  grad.addColorStop(0, "#2f9e4f");
+  grad.addColorStop(0.5, "#3fc266");
+  grad.addColorStop(1, "#237a3c");
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y + 14, w, h - 14);
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillRect(x + 6, y + 14, 6, h - 14);
+
+  // ağız (lip)
+  ctx.fillStyle = "#2f9e4f";
+  ctx.fillRect(x - 6, y, w + 12, 18);
+  ctx.strokeStyle = "#1c5c2c";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x - 6, y, w + 12, 18);
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillRect(x - 2, y + 3, 8, 12);
+
+  if (!showSign) return;
+
+  // tabela
+  const label = "5 YILDIZLI MEKAN";
+  ctx.font = "bold 11px Trebuchet MS";
+  const tw = ctx.measureText(label).width;
+  const bw = tw + 20, bh = 22;
+  const bx = x + w / 2 - bw / 2, by = y - bh - 14;
+  ctx.fillStyle = "#0033a0";
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(bx, by, bw, bh);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.fillText(label, x + w / 2, by + 15);
+  ctx.fillStyle = "#888";
+  ctx.fillRect(x + w / 2 - 2, by + bh, 4, 14);
+}
+
+function drawPipe(p) {
+  const x = p.x - camX;
+  if (x + p.w < 0 || x > W) return;
+  drawPipeShape(x, p.y, p.w, p.h, GROUND_Y + 3, true);
 }
 
 function drawSign(x, text) {
@@ -2211,7 +2510,102 @@ function drawBonusNotify() {
   ctx.restore();
 }
 
+function drawBonusRoomScene() {
+  // siyah restoran arka planı
+  ctx.fillStyle = "#0b0b0f";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, bonusRoom.floorY);
+    ctx.stroke();
+  }
+
+  // tavan ışıkları
+  for (let x = 60; x < W; x += 140) {
+    const glow = ctx.createRadialGradient(x, 40, 2, x, 40, 34);
+    glow.addColorStop(0, "rgba(255, 210, 120, 0.85)");
+    glow.addColorStop(1, "rgba(255, 210, 120, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - 34, 6, 68, 68);
+    ctx.fillStyle = "#ffd27a";
+    ctx.beginPath();
+    ctx.arc(x, 40, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // başlık
+  ctx.fillStyle = "#d4af37";
+  ctx.font = "bold 22px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("★ 5 YILDIZLI MEKAN ★", W / 2, 108);
+
+  // menü panosu
+  const menuX = 36, menuY = 140, menuW = 220, menuH = 158;
+  ctx.fillStyle = "rgba(20,20,25,0.88)";
+  ctx.fillRect(menuX, menuY, menuW, menuH);
+  ctx.strokeStyle = "#d4af37";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(menuX, menuY, menuW, menuH);
+  ctx.fillStyle = "#d4af37";
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillText("MENÜ", menuX + 14, menuY + 22);
+  ctx.font = "11px Trebuchet MS";
+  const menuItems = [["Simit", "15₺"], ["Dürüm", "60₺"], ["Poğaça", "20₺"], ["Midye Dolma", "5₺/adet"], ["Kumpir", "80₺"]];
+  menuItems.forEach(([name, price], i) => {
+    const yy = menuY + 44 + i * 20;
+    ctx.fillStyle = "#eee";
+    ctx.textAlign = "left";
+    ctx.fillText(name, menuX + 14, yy);
+    ctx.fillStyle = "#ffd27a";
+    ctx.textAlign = "right";
+    ctx.fillText(price, menuX + menuW - 14, yy);
+  });
+
+  // zemin
+  ctx.fillStyle = "#1c1c22";
+  ctx.fillRect(0, bonusRoom.floorY, W, H - bonusRoom.floorY);
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, bonusRoom.floorY);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#d4af37";
+  ctx.fillRect(0, bonusRoom.floorY, W, 3);
+
+  // yiyecekler (küçük taburelerin üstünde, fiyat etiketiyle)
+  for (const it of bonusRoom.items) {
+    if (it.collected) continue;
+    const bobY = it.y + Math.sin(it.bobT * 2) * 4;
+    ctx.fillStyle = "#3a2a1c";
+    ctx.fillRect(it.x - 4, bonusRoom.floorY - 6, it.w + 8, 6);
+    drawFoodIcon(it.food, it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
+    ctx.fillStyle = "#ffd27a";
+    ctx.font = "bold 10px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText("+150", it.x + it.w / 2, bobY - 6);
+  }
+
+  const ep = bonusRoom.exitPipe;
+  drawPipeShape(ep.x, ep.y, ep.w, ep.h, bonusRoom.floorY + 3, false);
+  drawHint(ep.x + ep.w / 2, ep.y - 6, "Çıkmak için üstüne çık, sonra aşağı bas");
+
+  drawPlayer();
+  drawParticlesLayer();
+}
+
 function draw() {
+  if (gameState === "bonusroom") {
+    drawBonusRoomScene();
+    return;
+  }
   ctx.save();
   if (shakeTime > 0) {
     ctx.translate((Math.random() - 0.5) * 2 * shakeMag, (Math.random() - 0.5) * 2 * shakeMag);
@@ -2224,6 +2618,8 @@ function draw() {
   for (const s of signs) drawSign(s.x, s.text);
   drawPlatforms();
   for (const b of boxes) drawBox(b);
+  for (const c of coins) if (!c.collected) drawCoin(c);
+  for (const p of pipes) drawPipe(p);
   for (const s of secrets) if (!s.collected) drawSecret(s);
   if (!moto.used) {
     const mx = moto.x - camX;
