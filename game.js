@@ -55,7 +55,8 @@ for (const seg of groundSegs) {
   const segLen = seg.x2 - seg.x1;
   if (segLen < 500) continue;
   const px = seg.x1 + segLen * 0.4;
-  const py = GROUND_Y - 100 - ((Math.abs(seg.x1) * 37) % 130);
+  // Çift zıplamayla güvenle ulaşılabilecek yükseklik aralığı (~90-170px)
+  const py = GROUND_Y - 90 - ((Math.abs(seg.x1) * 37) % 80);
   const pw = 120 + ((Math.abs(seg.x1) * 13) % 60);
   platforms.push({ x: px, y: py, w: pw, h: 22 });
 }
@@ -76,7 +77,7 @@ const signs = [];
 // WhatsApp kutuları: platformların bir kısmının üstünde
 const boxes = platforms
   .filter((_, i) => i % 2 === 0)
-  .map(p => ({ x: p.x + p.w / 2 - 20, y: p.y - 90, w: 40, h: 40, used: false }));
+  .map(p => ({ x: p.x + p.w / 2 - 20, y: p.y - 55, w: 40, h: 40, used: false }));
 
 // Düşmanlar: yeterince uzun her zemin parçasında biri, hedefe yakın alan boş
 const enemyDefs = [];
@@ -140,10 +141,29 @@ for (const seg of groundSegs) {
 }
 
 // Dev borular: "5 YILDIZLI MEKAN" bonus odasına açılır
-const pipes = [0.32, 0.7].map((frac) => ({
-  x: nearestGroundX(LEVEL_END * frac),
-  y: GROUND_Y - 72, w: 58, h: 72,
-}));
+// (üstlerinin platformlarla çakışmamasına dikkat edilir, yoksa oyuncu
+// boruya hiç inemez)
+const pipes = [0.32, 0.7].map((frac) => {
+  const targetX = LEVEL_END * frac;
+  const w = 58;
+  const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) ||
+    groundSegs.find(s => s.x2 - s.x1 > 400) || groundSegs[0];
+  const clearOf = (cx) => !platforms.some(p => cx < p.x + p.w + 25 && cx + w > p.x - 25);
+  let x = Math.max(seg.x1 + 40, Math.min(seg.x2 - w - 40, targetX));
+  if (!clearOf(x)) {
+    const segLen = seg.x2 - seg.x1;
+    const candidates = [
+      seg.x1 + 30,
+      seg.x2 - w - 30,
+      seg.x1 + segLen * 0.15,
+      seg.x1 + segLen * 0.85,
+      seg.x1 + segLen * 0.6,
+    ];
+    const found = candidates.find(clearOf);
+    if (found !== undefined) x = found;
+  }
+  return { x, y: GROUND_Y - 72, w, h: 72 };
+});
 
 // Kontrol noktaları: geçilince bayrak açılır, yeni doğuş noktası olur
 const checkpoints = [];
@@ -166,7 +186,7 @@ for (const seg of groundSegs) {
 // Gizli bonuslar: platformların üstünde, çift zıplama gerektiren yükseklikte
 const secrets = platforms
   .filter((_, i) => i % 3 === 1)
-  .map(p => ({ x: p.x + p.w / 2 - 9, y: p.y - 70, w: 18, h: 18, collected: false }));
+  .map(p => ({ x: p.x + p.w / 2 - 9, y: p.y - 45, w: 18, h: 18, collected: false }));
 
 // ---------- Yardımcılar ----------
 function rectsOverlap(a, b) {
@@ -430,18 +450,22 @@ function enterPipe(p) {
   ];
   const roomItems = [];
   for (let i = 0; i < BONUS_ROOM_FOOD_COUNT; i++) {
-    const rx = 130 + i * 100;
+    const rx = 130 + i * 90;
     const ry = floorY - 90 - (i % 3) * 46;
     roomItems.push({
-      x: rx, y: ry, w: 26, h: 32,
-      food: FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)],
+      x: rx, y: ry, w: 22, h: 30,
+      cocktail: COCKTAIL_TYPES[Math.floor(Math.random() * COCKTAIL_TYPES.length)],
       collected: false, bobT: Math.random() * 10,
     });
   }
+  const reviewPhone = { x: W - 260, y: floorY - 36, w: 20, h: 30, used: false };
   bonusRoom = {
     solids: roomSolids,
     items: roomItems,
     exitPipe,
+    reviewPhone,
+    reviewing: false,
+    reviewT: 0,
     floorY,
     returnX: player.x,
     returnRespawnX: player.respawnX,
@@ -499,7 +523,13 @@ function endPhoneCutscene() {
 
 sendBtn.addEventListener("click", () => {
   if (gameState === "phonecutscene" && phonePhase === "recording") sendPhoneVideo();
+  else if (gameState === "bonusroom" && bonusRoom && bonusRoom.reviewing) closeReview();
 });
+
+function closeReview() {
+  bonusRoom.reviewing = false;
+  sendBtn.classList.add("hidden");
+}
 
 function loseLife() {
   playHurtSound();
@@ -639,6 +669,11 @@ function update(dt) {
   }
 
   if (gameState === "bonusroom") {
+    if (bonusRoom.reviewing) {
+      bonusRoom.reviewT += dt;
+      return;
+    }
+
     const down = keys["ArrowDown"] || keys["KeyS"];
     const left = keys["ArrowLeft"] || keys["KeyA"] || touchLeft;
     const right = keys["ArrowRight"] || keys["KeyD"] || touchRight;
@@ -699,6 +734,15 @@ function update(dt) {
         playCollectSound();
         spawnParticles(it.x + it.w / 2, it.y + it.h / 2, 10, "#ffe07a");
       }
+    }
+
+    const rp = bonusRoom.reviewPhone;
+    if (!rp.used && rectsOverlap(playerRect(), { x: rp.x, y: rp.y, w: rp.w, h: rp.h })) {
+      rp.used = true;
+      bonusRoom.reviewing = true;
+      bonusRoom.reviewT = 0;
+      playPipeSound();
+      sendBtn.classList.remove("hidden");
     }
     return;
   }
@@ -1727,6 +1771,88 @@ function roundRect(x, y, w, h, r) {
 const FOOD_TYPES = ["simit", "durum", "pogaca", "midye", "kumpir"];
 const FOOD_NAMES = { simit: "Simit", durum: "Dürüm", pogaca: "Poğaça", midye: "Midye Dolma", kumpir: "Kumpir" };
 
+const COCKTAIL_TYPES = ["red", "blue", "green", "yellow"];
+const COCKTAIL_COLORS = { red: "#e0304f", blue: "#2f8fe0", green: "#4fae5a", yellow: "#e0b830" };
+
+function drawCocktailIcon(type, cx, cy, w, h) {
+  const color = COCKTAIL_COLORS[type] || "#e0304f";
+  const x = cx - w / 2, y = cy - h / 2;
+
+  if (type === "red") {
+    // martini kadehi
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(cx, y + h * 0.55);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y + 3);
+    ctx.lineTo(x + w - 3, y + 3);
+    ctx.lineTo(cx, y + h * 0.48);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, y + h * 0.5);
+    ctx.lineTo(cx, y + h * 0.85);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.3, y + h);
+    ctx.lineTo(cx + w * 0.3, y + h);
+    ctx.stroke();
+  } else if (type === "blue") {
+    // uzun bardak
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 2, y + h * 0.25, w - 4, h * 0.73);
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.7, y - 6);
+    ctx.lineTo(x + w * 0.55, y + h * 0.3);
+    ctx.stroke();
+  } else if (type === "green") {
+    // kısa tumbler
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(x, y + h * 0.2, w, h * 0.8);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + 2, y + h * 0.4, w - 4, h * 0.58);
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y + h * 0.2, w, h * 0.8);
+    ctx.fillStyle = "#e0d030";
+    ctx.beginPath();
+    ctx.arc(x + w * 0.78, y + h * 0.28, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // hurricane kupa
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.15, y);
+    ctx.quadraticCurveTo(x - w * 0.12, y + h * 0.5, x + w * 0.2, y + h);
+    ctx.lineTo(x + w * 0.8, y + h);
+    ctx.quadraticCurveTo(x + w * 1.12, y + h * 0.5, x + w * 0.85, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.22, y + h * 0.32);
+    ctx.lineTo(x + w * 0.78, y + h * 0.32);
+    ctx.lineTo(x + w * 0.72, y + h);
+    ctx.lineTo(x + w * 0.28, y + h);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 // Yiyecek ikonunu (cx,cy) merkezli, w x h boyutunda çizer.
 // Hem dünyadaki küçük item hem de sağ üstteki büyük bildirim için kullanılır.
 function drawFoodIcon(food, cx, cy, w, h) {
@@ -2459,6 +2585,73 @@ function drawSelfieFace(cx, cy, scale, tilt, mouthOpen) {
   ctx.restore();
 }
 
+function wrapTextLines(text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+const REVIEW_TEXT = "Mekan çok güzeldi, kıvırcık garson da gayet iyiydi. Son içtiğim ve 19 sularından gelen kırmızı kokteyl özellikle müthişti.";
+
+function drawReviewScreen() {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.78)";
+  ctx.fillRect(0, 0, W, H);
+
+  const pw = 230, ph = 380;
+  const px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+
+  ctx.fillStyle = "#0a0a0a";
+  roundRect(px, py, pw, ph, 28);
+  ctx.fill();
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const sx = px + 10, sy = py + 24, sw = pw - 20, sh = ph - 48;
+  ctx.fillStyle = "#161616";
+  roundRect(sx, sy, sw, sh, 14);
+  ctx.fill();
+
+  // 5 yıldız
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 24px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("★★★★★", sx + sw / 2, sy + 44);
+  ctx.fillStyle = "#aaa";
+  ctx.font = "bold 11px Trebuchet MS";
+  ctx.fillText("GOOGLE YORUMU", sx + sw / 2, sy + 64);
+
+  // daktilo efektli metin
+  const revealCount = Math.min(REVIEW_TEXT.length, Math.floor(bonusRoom.reviewT * 24));
+  const shown = REVIEW_TEXT.slice(0, revealCount);
+  ctx.font = "13px Trebuchet MS";
+  ctx.fillStyle = "#eee";
+  ctx.textAlign = "left";
+  const lines = wrapTextLines(shown, sw - 32);
+  lines.forEach((line, i) => {
+    ctx.fillText(line, sx + 16, sy + 96 + i * 20);
+  });
+  const lastLineWidth = lines.length ? ctx.measureText(lines[lines.length - 1]).width : 0;
+  if (revealCount < REVIEW_TEXT.length && Math.floor(performance.now() / 300) % 2 === 0) {
+    const cursorY = sy + 96 + Math.max(0, lines.length - 1) * 20;
+    ctx.fillRect(sx + 16 + lastLineWidth + 2, cursorY - 11, 7, 13);
+  }
+
+  ctx.restore();
+}
+
 function drawPhoneCutscene() {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.75)";
@@ -2727,7 +2920,7 @@ function drawBonusRoomScene() {
   ctx.textAlign = "left";
   ctx.fillText("MENÜ", menuX + 14, menuY + 22);
   ctx.font = "11px Trebuchet MS";
-  const menuItems = [["Simit", "15₺"], ["Dürüm", "60₺"], ["Poğaça", "20₺"], ["Midye Dolma", "5₺/adet"], ["Kumpir", "80₺"]];
+  const menuItems = [["Kırmızı Kokteyl", "120₺"], ["Mavi Kokteyl", "110₺"], ["Yeşil Kokteyl", "100₺"], ["Sarı Kokteyl", "115₺"], ["Servis", "Ücretsiz"]];
   menuItems.forEach(([name, price], i) => {
     const yy = menuY + 44 + i * 20;
     ctx.fillStyle = "#eee";
@@ -2752,17 +2945,24 @@ function drawBonusRoomScene() {
   ctx.fillStyle = "#d4af37";
   ctx.fillRect(0, bonusRoom.floorY, W, 3);
 
-  // yiyecekler (küçük taburelerin üstünde, fiyat etiketiyle)
+  // kokteyller (küçük taburelerin üstünde, fiyat etiketiyle)
   for (const it of bonusRoom.items) {
     if (it.collected) continue;
     const bobY = it.y + Math.sin(it.bobT * 2) * 4;
     ctx.fillStyle = "#3a2a1c";
     ctx.fillRect(it.x - 4, bonusRoom.floorY - 6, it.w + 8, 6);
-    drawFoodIcon(it.food, it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
+    drawCocktailIcon(it.cocktail, it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
     ctx.fillStyle = "#ffd27a";
     ctx.font = "bold 10px Trebuchet MS";
     ctx.textAlign = "center";
     ctx.fillText("+150", it.x + it.w / 2, bobY - 6);
+  }
+
+  // inceleme telefonu
+  const rp = bonusRoom.reviewPhone;
+  if (!rp.used) {
+    drawPhoneIcon(rp.x + rp.w / 2, rp.y + rp.h / 2, 1);
+    drawHint(rp.x + rp.w / 2, rp.y - 12, "İncelemeyi oku");
   }
 
   const ep = bonusRoom.exitPipe;
@@ -2771,6 +2971,8 @@ function drawBonusRoomScene() {
 
   drawPlayer();
   drawParticlesLayer();
+
+  if (bonusRoom.reviewing) drawReviewScreen();
 }
 
 function draw() {
