@@ -143,13 +143,42 @@ for (const seg of groundSegs) {
 // Dev borular: "5 YILDIZLI MEKAN" bonus odasına açılır
 // (üstlerinin platformlarla çakışmamasına dikkat edilir, yoksa oyuncu
 // boruya hiç inemez)
-const pipes = [0.32, 0.7].map((frac) => {
+const PIPE_THEMES = [
+  {
+    name: "HASİP USTA'NIN YERİ",
+    stars: 1,
+    bg: "kebap",
+    review: "1 YILDIZLI YORUM GÖRSELİ: ürünler kötüydü, umarım ustaya kayyum atanır ya da kendinizi cimer'e örgütüüyesi diye bildirmeyi düşünüyorum :)",
+    itemType: "kebap",
+    menu: [["Adana Kebap", "180₺"], ["Lahmacun", "60₺"], ["Ayran", "20₺"], ["Salata", "40₺"], ["Baklava", "90₺"]],
+  },
+  {
+    name: "EKOOZ",
+    stars: 5,
+    bg: "bar",
+    review: "Mekan çok güzeldi, kıvırcık garson da gayet iyiydi. Son içtiğim ve 19 sularından gelen kırmızı kokteyl özellikle müthişti.",
+    itemType: "cocktail",
+    menu: [["Kırmızı Kokteyl", "120₺"], ["Mavi Kokteyl", "110₺"], ["Yeşil Kokteyl", "100₺"], ["Sarı Kokteyl", "115₺"], ["Servis", "Ücretsiz"]],
+  },
+  {
+    name: "VUVU",
+    stars: 4,
+    bg: "kahve",
+    review: "4 YILDIZLI YORUM GÖRSELİ: mekandaki her şey güzeldi, kahvaltı içmek için tekrar geleceğiz OĞUZ. yine de mekanın logosundaki kuşa e vikvik konuşan dallamatör müşteriye kıl oldum",
+    itemType: "coffee",
+    menu: [["Filtre Kahve", "70₺"], ["Latte", "85₺"], ["Kahvaltı Tabağı", "150₺"], ["Çay", "30₺"], ["Kruvasan", "55₺"]],
+  },
+];
+
+const pipes = [0.24, 0.5, 0.76].map((frac, i) => {
   const targetX = LEVEL_END * frac;
   const w = 58;
-  const seg = groundSegs.find(s => targetX >= s.x1 + 80 && targetX <= s.x2 - 80) ||
-    groundSegs.find(s => s.x2 - s.x1 > 400) || groundSegs[0];
-  const clearOf = (cx) => !platforms.some(p => cx < p.x + p.w + 25 && cx + w > p.x - 25);
-  let x = Math.max(seg.x1 + 40, Math.min(seg.x2 - w - 40, targetX));
+  const baseX = nearestGroundX(targetX);
+  const seg = groundSegs.find(s => baseX >= s.x1 - 1 && baseX <= s.x2 + 1) || groundSegs[0];
+  const clearOf = (cx) =>
+    cx >= seg.x1 + 20 && cx + w <= seg.x2 - 20 &&
+    !platforms.some(p => cx < p.x + p.w + 25 && cx + w > p.x - 25);
+  let x = Math.max(seg.x1 + 40, Math.min(seg.x2 - w - 40, baseX));
   if (!clearOf(x)) {
     const segLen = seg.x2 - seg.x1;
     const candidates = [
@@ -162,7 +191,7 @@ const pipes = [0.32, 0.7].map((frac) => {
     const found = candidates.find(clearOf);
     if (found !== undefined) x = found;
   }
-  return { x, y: GROUND_Y - 72, w, h: 72 };
+  return { x, y: GROUND_Y - 72, w, h: 72, theme: PIPE_THEMES[i] };
 });
 
 // Kontrol noktaları: geçilince bayrak açılır, yeni doğuş noktası olur
@@ -442,6 +471,7 @@ const BONUS_ROOM_FOOD_COUNT = 7;
 
 function enterPipe(p) {
   playCheckpointSound();
+  const theme = p.theme || PIPE_THEMES[1];
   const floorY = 460;
   const exitPipe = { x: W - 150, y: floorY - 70, w: 58, h: 70 };
   const roomSolids = [
@@ -452,14 +482,21 @@ function enterPipe(p) {
   for (let i = 0; i < BONUS_ROOM_FOOD_COUNT; i++) {
     const rx = 130 + i * 90;
     const ry = floorY - 90 - (i % 3) * 46;
-    roomItems.push({
-      x: rx, y: ry, w: 22, h: 30,
-      cocktail: COCKTAIL_TYPES[Math.floor(Math.random() * COCKTAIL_TYPES.length)],
-      collected: false, bobT: Math.random() * 10,
-    });
+    const item = { x: rx, y: ry, w: 22, h: 30, collected: false, bobT: Math.random() * 10 };
+    if (theme.itemType === "cocktail") {
+      item.cocktail = COCKTAIL_TYPES[Math.floor(Math.random() * COCKTAIL_TYPES.length)];
+    } else if (theme.itemType === "coffee") {
+      item.coffee = true;
+      item.w = 22; item.h = 26;
+    } else {
+      item.kebap = true;
+      item.w = 30; item.h = 20;
+    }
+    roomItems.push(item);
   }
   const reviewPhone = { x: W - 260, y: floorY - 36, w: 20, h: 30, used: false };
   bonusRoom = {
+    theme,
     solids: roomSolids,
     items: roomItems,
     exitPipe,
@@ -1659,7 +1696,7 @@ function drawCoin(c) {
   drawFoodIcon("simit", x + c.w / 2, c.y + c.h / 2 + bob, c.w, c.h);
 }
 
-function drawPipeShape(x, y, w, h, shadowY, showSign) {
+function drawPipeShape(x, y, w, h, shadowY, showSign, label) {
   ctx.fillStyle = "rgba(0,0,0,0.18)";
   ctx.beginPath();
   ctx.ellipse(x + w / 2, shadowY, w * 0.55, 5, 0, 0, Math.PI * 2);
@@ -1686,9 +1723,15 @@ function drawPipeShape(x, y, w, h, shadowY, showSign) {
   if (!showSign) return;
 
   // tabela
-  const label = "5 YILDIZLI MEKAN";
-  ctx.font = "bold 11px Trebuchet MS";
-  const tw = ctx.measureText(label).width;
+  const text = label || "5 YILDIZLI MEKAN";
+  let fontSize = 11;
+  ctx.font = `bold ${fontSize}px Trebuchet MS`;
+  const maxTextW = 190;
+  while (ctx.measureText(text).width > maxTextW && fontSize > 7) {
+    fontSize -= 1;
+    ctx.font = `bold ${fontSize}px Trebuchet MS`;
+  }
+  const tw = ctx.measureText(text).width;
   const bw = tw + 20, bh = 22;
   const bx = x + w / 2 - bw / 2, by = y - bh - 14;
   ctx.fillStyle = "#0033a0";
@@ -1698,7 +1741,7 @@ function drawPipeShape(x, y, w, h, shadowY, showSign) {
   ctx.strokeRect(bx, by, bw, bh);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.fillText(label, x + w / 2, by + 15);
+  ctx.fillText(text, x + w / 2, by + 15);
   ctx.fillStyle = "#888";
   ctx.fillRect(x + w / 2 - 2, by + bh, 4, 14);
 }
@@ -1706,7 +1749,9 @@ function drawPipeShape(x, y, w, h, shadowY, showSign) {
 function drawPipe(p) {
   const x = p.x - camX;
   if (x + p.w < 0 || x > W) return;
-  drawPipeShape(x, p.y, p.w, p.h, GROUND_Y + 3, true);
+  const stars = p.theme ? "★".repeat(p.theme.stars) : "★★★★★";
+  const label = p.theme ? `${p.theme.name} (${stars})` : "5 YILDIZLI MEKAN";
+  drawPipeShape(x, p.y, p.w, p.h, GROUND_Y + 3, true, label);
 }
 
 function drawSign(x, text) {
@@ -1773,6 +1818,68 @@ const FOOD_NAMES = { simit: "Simit", durum: "Dürüm", pogaca: "Poğaça", midye
 
 const COCKTAIL_TYPES = ["red", "blue", "green", "yellow"];
 const COCKTAIL_COLORS = { red: "#e0304f", blue: "#2f8fe0", green: "#4fae5a", yellow: "#e0b830" };
+
+function drawKebapIcon(cx, cy, w, h) {
+  const x = cx - w / 2, y = cy - h / 2;
+  // şiş
+  ctx.strokeStyle = "#c9c9c9";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, cy);
+  ctx.lineTo(x + w, cy);
+  ctx.stroke();
+  // et parçaları
+  const chunkColors = ["#8a4a2a", "#a5592f", "#7a3f24"];
+  for (let i = 0; i < 4; i++) {
+    const ccx = x + 6 + i * (w - 12) / 3;
+    ctx.fillStyle = chunkColors[i % chunkColors.length];
+    ctx.beginPath();
+    ctx.ellipse(ccx, cy, 7, h * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // biber
+  ctx.fillStyle = "#3a8f3a";
+  ctx.beginPath();
+  ctx.ellipse(x + w - 4, cy - 4, 5, 8, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCoffeeIcon(cx, cy, w, h) {
+  const x = cx - w / 2, y = cy - h / 2;
+  // buhar
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - 3, y - 2);
+  ctx.quadraticCurveTo(cx - 8, y - 8, cx - 3, y - 14);
+  ctx.moveTo(cx + 3, y - 2);
+  ctx.quadraticCurveTo(cx + 8, y - 8, cx + 3, y - 14);
+  ctx.stroke();
+  // fincan
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + 4);
+  ctx.lineTo(x + w - 2, y + 4);
+  ctx.lineTo(x + w - 5, y + h);
+  ctx.lineTo(x + 5, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#5a3420";
+  ctx.beginPath();
+  ctx.ellipse(cx, y + 6, w * 0.42, 3.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // kulp
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(x + w + 1, y + h * 0.5, 4.5, -Math.PI * 0.5, Math.PI * 0.5);
+  ctx.stroke();
+  // tabak
+  ctx.fillStyle = "#eee";
+  ctx.beginPath();
+  ctx.ellipse(cx, y + h + 2, w * 0.6, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
 
 function drawCocktailIcon(type, cx, cy, w, h) {
   const color = COCKTAIL_COLORS[type] || "#e0304f";
@@ -2602,9 +2709,9 @@ function wrapTextLines(text, maxWidth) {
   return lines;
 }
 
-const REVIEW_TEXT = "Mekan çok güzeldi, kıvırcık garson da gayet iyiydi. Son içtiğim ve 19 sularından gelen kırmızı kokteyl özellikle müthişti.";
-
 function drawReviewScreen() {
+  const theme = bonusRoom.theme || PIPE_THEMES[1];
+  const reviewText = theme.review;
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.78)";
   ctx.fillRect(0, 0, W, H);
@@ -2624,18 +2731,18 @@ function drawReviewScreen() {
   roundRect(sx, sy, sw, sh, 14);
   ctx.fill();
 
-  // 5 yıldız
+  // yıldızlar
   ctx.fillStyle = "#ffd700";
   ctx.font = "bold 24px Trebuchet MS";
   ctx.textAlign = "center";
-  ctx.fillText("★★★★★", sx + sw / 2, sy + 44);
+  ctx.fillText("★".repeat(theme.stars) + "☆".repeat(5 - theme.stars), sx + sw / 2, sy + 44);
   ctx.fillStyle = "#aaa";
   ctx.font = "bold 11px Trebuchet MS";
   ctx.fillText("GOOGLE YORUMU", sx + sw / 2, sy + 64);
 
   // daktilo efektli metin
-  const revealCount = Math.min(REVIEW_TEXT.length, Math.floor(bonusRoom.reviewT * 24));
-  const shown = REVIEW_TEXT.slice(0, revealCount);
+  const revealCount = Math.min(reviewText.length, Math.floor(bonusRoom.reviewT * 24));
+  const shown = reviewText.slice(0, revealCount);
   ctx.font = "13px Trebuchet MS";
   ctx.fillStyle = "#eee";
   ctx.textAlign = "left";
@@ -2644,7 +2751,7 @@ function drawReviewScreen() {
     ctx.fillText(line, sx + 16, sy + 96 + i * 20);
   });
   const lastLineWidth = lines.length ? ctx.measureText(lines[lines.length - 1]).width : 0;
-  if (revealCount < REVIEW_TEXT.length && Math.floor(performance.now() / 300) % 2 === 0) {
+  if (revealCount < reviewText.length && Math.floor(performance.now() / 300) % 2 === 0) {
     const cursorY = sy + 96 + Math.max(0, lines.length - 1) * 20;
     ctx.fillRect(sx + 16 + lastLineWidth + 2, cursorY - 11, 7, 13);
   }
@@ -2875,9 +2982,55 @@ function drawBonusNotify() {
   ctx.restore();
 }
 
+const THEME_STYLE = {
+  kebap: { wall: "#1e1210", accent: "#e0763a", light: "rgba(255,150,80,0.85)" },
+  bar: { wall: "#0b0b0f", accent: "#d4af37", light: "rgba(255,210,120,0.85)" },
+  kahve: { wall: "#241a12", accent: "#c9974a", light: "rgba(255,205,140,0.8)" },
+};
+
+function drawThemeDecor(bg, accent) {
+  if (bg === "kebap") {
+    // döner şiş
+    const dx = W - 90, dy = 96;
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy - 55);
+    ctx.lineTo(dx, dy + 55);
+    ctx.stroke();
+    ctx.fillStyle = "#8a4a2a";
+    ctx.beginPath();
+    ctx.moveTo(dx - 24, dy - 44);
+    ctx.lineTo(dx + 24, dy - 44);
+    ctx.lineTo(dx + 15, dy + 44);
+    ctx.lineTo(dx - 15, dy + 44);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#c9763a";
+    for (let yy = dy - 40; yy < dy + 40; yy += 8) ctx.fillRect(dx - 19, yy, 38, 3);
+  } else if (bg === "kahve") {
+    // kahve çekirdekleri
+    for (let i = 0; i < 6; i++) {
+      const bx = W - 60 - (i % 3) * 28, by = 66 + Math.floor(i / 3) * 22;
+      ctx.fillStyle = "#3a2214";
+      ctx.beginPath();
+      ctx.ellipse(bx, by, 8, 6, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#1a0e08";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx - 5, by);
+      ctx.lineTo(bx + 5, by);
+      ctx.stroke();
+    }
+  }
+}
+
 function drawBonusRoomScene() {
-  // siyah restoran arka planı
-  ctx.fillStyle = "#0b0b0f";
+  const theme = bonusRoom.theme || PIPE_THEMES[1];
+  const style = THEME_STYLE[theme.bg] || THEME_STYLE.bar;
+
+  ctx.fillStyle = style.wall;
   ctx.fillRect(0, 0, W, H);
 
   ctx.strokeStyle = "rgba(255,255,255,0.05)";
@@ -2892,8 +3045,8 @@ function drawBonusRoomScene() {
   // tavan ışıkları
   for (let x = 60; x < W; x += 140) {
     const glow = ctx.createRadialGradient(x, 40, 2, x, 40, 34);
-    glow.addColorStop(0, "rgba(255, 210, 120, 0.85)");
-    glow.addColorStop(1, "rgba(255, 210, 120, 0)");
+    glow.addColorStop(0, style.light);
+    glow.addColorStop(1, "rgba(255,210,120,0)");
     ctx.fillStyle = glow;
     ctx.fillRect(x - 34, 6, 68, 68);
     ctx.fillStyle = "#ffd27a";
@@ -2902,31 +3055,32 @@ function drawBonusRoomScene() {
     ctx.fill();
   }
 
+  drawThemeDecor(theme.bg, style.accent);
+
   // başlık
-  ctx.fillStyle = "#d4af37";
-  ctx.font = "bold 22px Trebuchet MS";
+  ctx.fillStyle = style.accent;
+  ctx.font = "bold 20px Trebuchet MS";
   ctx.textAlign = "center";
-  ctx.fillText("★ 5 YILDIZLI MEKAN ★", W / 2, 108);
+  ctx.fillText(`${"★".repeat(theme.stars)} ${theme.name}`, W / 2, 108);
 
   // menü panosu
   const menuX = 36, menuY = 140, menuW = 220, menuH = 158;
   ctx.fillStyle = "rgba(20,20,25,0.88)";
   ctx.fillRect(menuX, menuY, menuW, menuH);
-  ctx.strokeStyle = "#d4af37";
+  ctx.strokeStyle = style.accent;
   ctx.lineWidth = 2;
   ctx.strokeRect(menuX, menuY, menuW, menuH);
-  ctx.fillStyle = "#d4af37";
+  ctx.fillStyle = style.accent;
   ctx.font = "bold 13px Trebuchet MS";
   ctx.textAlign = "left";
   ctx.fillText("MENÜ", menuX + 14, menuY + 22);
   ctx.font = "11px Trebuchet MS";
-  const menuItems = [["Kırmızı Kokteyl", "120₺"], ["Mavi Kokteyl", "110₺"], ["Yeşil Kokteyl", "100₺"], ["Sarı Kokteyl", "115₺"], ["Servis", "Ücretsiz"]];
-  menuItems.forEach(([name, price], i) => {
+  theme.menu.forEach(([name, price], i) => {
     const yy = menuY + 44 + i * 20;
     ctx.fillStyle = "#eee";
     ctx.textAlign = "left";
     ctx.fillText(name, menuX + 14, yy);
-    ctx.fillStyle = "#ffd27a";
+    ctx.fillStyle = style.accent;
     ctx.textAlign = "right";
     ctx.fillText(price, menuX + menuW - 14, yy);
   });
@@ -2942,17 +3096,19 @@ function drawBonusRoomScene() {
     ctx.lineTo(x, H);
     ctx.stroke();
   }
-  ctx.fillStyle = "#d4af37";
+  ctx.fillStyle = style.accent;
   ctx.fillRect(0, bonusRoom.floorY, W, 3);
 
-  // kokteyller (küçük taburelerin üstünde, fiyat etiketiyle)
+  // ürünler (küçük taburelerin üstünde, fiyat etiketiyle)
   for (const it of bonusRoom.items) {
     if (it.collected) continue;
     const bobY = it.y + Math.sin(it.bobT * 2) * 4;
     ctx.fillStyle = "#3a2a1c";
     ctx.fillRect(it.x - 4, bonusRoom.floorY - 6, it.w + 8, 6);
-    drawCocktailIcon(it.cocktail, it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
-    ctx.fillStyle = "#ffd27a";
+    if (it.cocktail) drawCocktailIcon(it.cocktail, it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
+    else if (it.coffee) drawCoffeeIcon(it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
+    else drawKebapIcon(it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
+    ctx.fillStyle = style.accent;
     ctx.font = "bold 10px Trebuchet MS";
     ctx.textAlign = "center";
     ctx.fillText("+150", it.x + it.w / 2, bobY - 6);
