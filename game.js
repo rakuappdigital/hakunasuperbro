@@ -392,6 +392,7 @@ let endingPhase = "none"; // none | hearts | dialogue1 | manwalk | done
 let heartsThrown = 0;
 let heartTimer = 0;
 let hearts = [];
+let manThrowFlash = 0;
 const spiderman = { x: nearestGroundX(LEVEL_END * 0.58), phase: "idle", t: 0 };
 let phoneTimer = 0;
 let phoneAnimT = 0;
@@ -578,7 +579,7 @@ function startGame() {
   dialogueState = "none"; dialogueTimer = 0;
   manX = GREETER_X;
   endingPhase = "none";
-  heartsThrown = 0; heartTimer = 0; hearts = [];
+  heartsThrown = 0; heartTimer = 0; hearts = []; manThrowFlash = 0;
   spiderman.phase = "idle"; spiderman.t = 0;
   respawnPlayer();
   boxes.forEach(b => b.used = false);
@@ -708,25 +709,27 @@ function update(dt) {
     heartsThrown = 0;
     heartTimer = 0.6;
   }
+  const heartHeights = [GROUND_Y - 95, GROUND_Y - 55, GROUND_Y - 18];
   if (endingPhase === "hearts") {
     heartTimer -= dt;
     if (heartTimer <= 0 && heartsThrown < 5) {
-      const fromTop = heartsThrown % 2 === 0;
       hearts.push({
-        x: Math.max(20, Math.min(LEVEL_END - 20, player.x + player.w / 2 + (Math.random() * 140 - 70))),
-        y: fromTop ? -20 : GROUND_Y + 20,
-        vy: fromTop ? 150 : -150,
-        w: 18, h: 16,
+        x: manX - 10,
+        y: heartHeights[heartsThrown % heartHeights.length],
+        vx: -230,
+        w: 34, h: 30,
       });
       heartsThrown++;
-      heartTimer = 0.85;
+      heartTimer = 0.9;
+      manThrowFlash = 0.35;
       playHeartSound();
     }
     if (heartsThrown >= 5 && hearts.length === 0) {
       endingPhase = "dialogue1";
     }
   }
-  for (const h of hearts) h.y += h.vy * dt;
+  if (manThrowFlash > 0) manThrowFlash -= dt;
+  for (const h of hearts) h.x += h.vx * dt;
   for (const h of hearts) {
     if (!h.hit && rectsOverlap(playerRect(), { x: h.x - h.w / 2, y: h.y - h.h / 2, w: h.w, h: h.h })) {
       h.hit = true;
@@ -734,7 +737,7 @@ function update(dt) {
       triggerShake(0.08, 2);
     }
   }
-  hearts = hearts.filter(h => !h.hit && h.y > -40 && h.y < H + 40);
+  hearts = hearts.filter(h => !h.hit && h.x > player.x - 400);
 
   if (endingPhase === "dialogue1" && dialogueState === "none" && player.x + player.w >= GREETER_X - 15) {
     dialogueState = "line1";
@@ -757,11 +760,13 @@ function update(dt) {
     }
   }
   const dialogueFreeze = dialogueState === "line1" || dialogueState === "line2";
+  const spidermanFreeze = spiderman.phase !== "idle" && spiderman.phase !== "done";
+  const freeze = dialogueFreeze || spidermanFreeze;
 
-  const down = !dialogueFreeze && (keys["ArrowDown"] || keys["KeyS"]);
-  const left = !dialogueFreeze && !player.crouching && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
-  const right = !dialogueFreeze && !player.crouching && (keys["ArrowRight"] || keys["KeyD"] || touchRight);
-  const jumpKey = !dialogueFreeze && !player.crouching && (keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump);
+  const down = !freeze && (keys["ArrowDown"] || keys["KeyS"]);
+  const left = !freeze && !player.crouching && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
+  const right = !freeze && !player.crouching && (keys["ArrowRight"] || keys["KeyD"] || touchRight);
+  const jumpKey = !freeze && !player.crouching && (keys["Space"] || keys["ArrowUp"] || keys["KeyW"] || touchJump);
   const running = keys["ShiftLeft"] || keys["ShiftRight"];
 
   if (!player.riding) {
@@ -876,11 +881,14 @@ function update(dt) {
   downHeld = down;
 
   // Spider-Man kamesi
-  if (spiderman.phase === "idle" && Math.abs(player.x - spiderman.x) < 150) {
-    spiderman.phase = "down";
+  if (spiderman.phase === "idle" && player.x < spiderman.x && spiderman.x - player.x < 220) {
+    spiderman.phase = "sensing";
     spiderman.t = 0;
   }
-  if (spiderman.phase === "down") {
+  if (spiderman.phase === "sensing") {
+    spiderman.t += dt;
+    if (spiderman.t > 1.1) { spiderman.phase = "down"; spiderman.t = 0; }
+  } else if (spiderman.phase === "down") {
     spiderman.t += dt;
     if (spiderman.t > 1) { spiderman.phase = "hang"; spiderman.t = 0; }
   } else if (spiderman.phase === "hang") {
@@ -2068,14 +2076,21 @@ function drawHeart(x, y, size) {
 function drawHeartsLayer() {
   for (const h of hearts) {
     const x = h.x - camX;
-    if (x < -30 || x > W + 30) continue;
-    drawHeart(x, h.y, 9);
+    if (x < -40 || x > W + 40) continue;
+    drawHeart(x, h.y, 14);
   }
 }
 
 function drawSpidermanCameo() {
   const x = spiderman.x - camX;
   if (x < -100 || x > W + 100) return;
+
+  if (spiderman.phase === "sensing") {
+    const px = player.x - camX + player.w / 2;
+    drawSpeechBubble(px, player.y - 6, "HİSSEDİYORUM...");
+    return;
+  }
+
   const hangDrop = 130;
   let drop;
   if (spiderman.phase === "down") drop = hangDrop * Math.min(1, spiderman.t / 1);
@@ -2145,12 +2160,23 @@ function drawManGreeter(x) {
   ctx.fillStyle = "rgba(255,255,255,0.08)";
   ctx.fillRect(x - 12, y + 22, 24, 5);
 
-  // kollar
+  // kollar (kalp fırlatırken sol kol öne doğru uzanır)
+  const throwing = manThrowFlash > 0;
+  const throwT = throwing ? manThrowFlash / 0.35 : 0;
   ctx.fillStyle = "#161616";
-  ctx.fillRect(x - 16, y + 26 + bob * 0.5, 5, 20);
+  if (throwing) {
+    const armY = y + 30 - throwT * 10;
+    ctx.fillRect(x - 24 - throwT * 6, armY, 14 + throwT * 6, 5);
+    ctx.fillStyle = "#e0ac69";
+    ctx.fillRect(x - 26 - throwT * 6, armY - 1, 5, 7);
+  } else {
+    ctx.fillRect(x - 16, y + 26 + bob * 0.5, 5, 20);
+    ctx.fillStyle = "#e0ac69";
+    ctx.fillRect(x - 16, y + 44 + bob * 0.5, 5, 5);
+  }
+  ctx.fillStyle = "#161616";
   ctx.fillRect(x + 11, y + 26 + bob * 0.5, 5, 20);
   ctx.fillStyle = "#e0ac69";
-  ctx.fillRect(x - 16, y + 44 + bob * 0.5, 5, 5);
   ctx.fillRect(x + 11, y + 44 + bob * 0.5, 5, 5);
 
   // kafa
