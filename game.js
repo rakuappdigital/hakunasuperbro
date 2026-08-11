@@ -19,8 +19,8 @@ const JUMP_V = -640;
 const BIG_JUMP_V = -700;
 
 // ---------- Seviye verisi (prosedürel, orijinalin 2 katı uzunlukta) ----------
-const LEVEL_END = 13200;
-const GOAL_X = 13000;
+const LEVEL_END = 17160;
+const GOAL_X = 16900;
 const GREETER_X = GOAL_X - 250;
 
 // Zemin parçaları (aralarında çukurlar var) — çukur genişlikleri orijinaldeki
@@ -222,9 +222,14 @@ function respawnPlayer() {
   player.jumpsUsed = 0;
 }
 
+function foodShielded() {
+  return player.big && player.beerTimer > 0;
+}
+
 function growPlayer() {
-  // Yiyecek etkisi 3 saniye sürer; tekrar yiyeceğe dokununca süre yenilenir
-  player.beerTimer = 3;
+  // Yiyecek etkisi 5 saniye sürer; bu süre boyunca düşmanlar etki edemez.
+  // Tekrar yiyeceğe dokununca süre yenilenir.
+  player.beerTimer = 5;
   player.glow = 1.5;
   if (player.big) return;
   player.big = true;
@@ -976,7 +981,7 @@ function update(dt) {
       } else if (stomping) {
         player.vy = JUMP_V * 0.55;
         killEnemy(en);
-      } else if (player.invincible <= 0) {
+      } else if (player.invincible <= 0 && !foodShielded()) {
         shrinkPlayer();
       }
     }
@@ -999,7 +1004,7 @@ function update(dt) {
       if (player.riding || stomping) {
         if (!player.riding) player.vy = JUMP_V * 0.5;
         killEnemy(en);
-      } else if (player.invincible <= 0) {
+      } else if (player.invincible <= 0 && !foodShielded()) {
         shrinkPlayer();
       }
     }
