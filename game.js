@@ -841,10 +841,21 @@ function startGame() {
   bgMusic.play().catch(() => {});
 }
 
-setOverlay({
-  title: "HAZIR MISIN?",
-  text: "Çamlıca'dan Üsküdar'a koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
-  buttons: [{ label: "BAŞLA", onClick: startGame }],
+function showStartScreen() {
+  setOverlay({
+    title: "HAZIR MISIN?",
+    text: "Çamlıca'dan Üsküdar'a koş!<br/>Ok tuşları / A-D: hareket, Space / W: zıpla<br/>Havada tekrar bas: çift zıplama!",
+    marioFont: true,
+    buttons: [{ label: "BAŞLA", onClick: startGame }],
+  });
+}
+
+const titleScreen = document.getElementById("title-screen");
+const titleP1Btn = document.getElementById("title-p1-btn");
+titleP1Btn.addEventListener("click", () => {
+  ensureAudio();
+  titleScreen.classList.add("hidden");
+  showStartScreen();
 });
 
 // ---------- Güncelleme ----------
@@ -3628,6 +3639,7 @@ requestAnimationFrame(loop);
 // (Ayvalık ve Cunda) başlar.
 if (new URLSearchParams(window.location.search).get("level2") === "1") {
   ensureAudio();
+  titleScreen.classList.add("hidden");
   score = 0; lives = 3;
   switchToLevel2();
   bgMusic.play().catch(() => {});
