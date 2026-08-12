@@ -757,7 +757,7 @@ function enterPipe2(p) {
 
   bgMusic.pause();
   pipeMusic.currentTime = 0;
-  pipeMusic.play().catch(() => {});
+  tryPlayMusic(pipeMusic);
 }
 
 function enterPipe(p) {
@@ -808,7 +808,7 @@ function enterPipe(p) {
 
   bgMusic.pause();
   pipeMusic.currentTime = 0;
-  pipeMusic.play().catch(() => {});
+  tryPlayMusic(pipeMusic);
 }
 
 function exitBonusRoom() {
@@ -823,7 +823,7 @@ function exitBonusRoom() {
   camX = Math.max(0, Math.min(player.x - W / 2 + player.w / 2, LEVEL_END - W + 250));
 
   pipeMusic.pause();
-  bgMusic.play().catch(() => {});
+  tryPlayMusic(bgMusic);
 }
 
 function startPhoneCutscene(ph) {
@@ -942,6 +942,20 @@ bgMusic.loop = true;
 const pipeMusic = new Audio("mariooo.mp3");
 pipeMusic.loop = true;
 
+// Tarayıcı, gerçek bir kullanıcı etkileşimi olmadan (örn. ?level2=1 gibi
+// otomatik başlayan bağlantılarda) müziği sessizce engelleyebilir. Bu durumda
+// ilk tıklama/tuşa basmada tekrar denenir.
+function tryPlayMusic(el) {
+  const p = el.play();
+  if (p && p.catch) {
+    p.catch(() => {
+      const resume = () => { el.play().catch(() => {}); };
+      window.addEventListener("pointerdown", resume, { once: true });
+      window.addEventListener("keydown", resume, { once: true });
+    });
+  }
+}
+
 function startGame() {
   ensureAudio();
   if (currentLevel !== 1) restoreLevel1();
@@ -983,7 +997,7 @@ function startGame() {
   overlay.classList.add("hidden");
   pipeMusic.pause();
   bgMusic.currentTime = 0;
-  bgMusic.play().catch(() => {});
+  tryPlayMusic(bgMusic);
 }
 
 function showStartScreen() {
@@ -4364,5 +4378,5 @@ if (new URLSearchParams(window.location.search).get("level2") === "1") {
   titleScreen.classList.add("hidden");
   score = 0; lives = 3;
   switchToLevel2();
-  bgMusic.play().catch(() => {});
+  tryPlayMusic(bgMusic);
 }
