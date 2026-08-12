@@ -282,6 +282,52 @@ for (const seg of groundSegs2) {
   platforms2.push({ x: px, y: py, w: pw, h: 22, breakable: false, broken: false });
 }
 
+// Hediyelik eşya kutuları: platformların bir kısmının üstünde
+const boxes2 = platforms2
+  .filter((_, i) => i % 2 === 0)
+  .map(p => ({ x: p.x + p.w / 2 - 20, y: p.y - 55, w: 40, h: 40, used: false }));
+
+// Seviye 2'nin 3 özel borusu: dondurmacı, pideci, şarap mahzeni
+const PIPE2_THEMES = [
+  {
+    name: "DONDURMACI", key: "dondurma", itemCount: 6, triggerAt: 3,
+    triggerMsg: "BU KADAR DONDURMA YENMEZ AMA SEN SEVERSİN...", triggerDuration: 3,
+  },
+  {
+    name: "PİDECİ", key: "pide", itemCount: 4,
+    exitCharMsg: "MERHABA GULSAH, BEN VEDAT MİLÖR. BURAYI TERCİH ETMENE SEVİNDİM, AFİYET OLSUN...",
+    exitCharDuration: 5,
+  },
+  {
+    name: "ŞARAP MAHZENİ", key: "sarap", itemCount: 5,
+    drunkMsg: "ÇOK İÇMEYECEKTİN...", drunkDuration: 5,
+  },
+];
+
+const pipes2 = [0.2, 0.5, 0.8].map((frac, i) => {
+  const targetX = LEVEL2_END * frac;
+  const w = 58;
+  const baseX = nearestXInSegs(groundSegs2, targetX);
+  const seg = groundSegs2.find(s => baseX >= s.x1 - 1 && baseX <= s.x2 + 1) || groundSegs2[0];
+  const clearOf = (cx) =>
+    cx >= seg.x1 + 20 && cx + w <= seg.x2 - 20 &&
+    !platforms2.some(p => cx < p.x + p.w + 25 && cx + w > p.x - 25);
+  let x = Math.max(seg.x1 + 40, Math.min(seg.x2 - w - 40, baseX));
+  if (!clearOf(x)) {
+    const segLen = seg.x2 - seg.x1;
+    const candidates = [
+      seg.x1 + 30,
+      seg.x2 - w - 30,
+      seg.x1 + segLen * 0.15,
+      seg.x1 + segLen * 0.85,
+      seg.x1 + segLen * 0.6,
+    ];
+    const found = candidates.find(clearOf);
+    if (found !== undefined) x = found;
+  }
+  return { x, y: GROUND_Y - 72, w, h: 72, theme2: PIPE2_THEMES[i] };
+});
+
 const signTexts2 = ["AYVALIK", "CUNDA", "ŞEYTAN SOFRASI", "SARIMSAKLI", "ALİBEY ADASI"];
 const signs2 = [];
 {
@@ -363,17 +409,25 @@ function switchToLevel2() {
   enemyDefs.length = 0; enemyDefs.push(...enemyDefs2);
   flyingEnemyDefs.length = 0;
   landmarks.length = 0; landmarks.push(...landmarks2);
-  pipes.length = 0;
-  boxes.length = 0;
+  pipes.length = 0; pipes.push(...pipes2);
+  boxes.length = 0; boxes.push(...boxes2);
   secrets.length = 0;
   solids.length = 0;
   for (const g of groundSegs2) solids.push({ x: g.x1, y: GROUND_Y, w: g.x2 - g.x1, h: 300 });
   for (const p of platforms2) solids.push(p);
+  for (const p of pipes2) solids.push(p);
   LEVEL_END = LEVEL2_END;
   GOAL_X = GOAL2_X;
   moto.used = true;
   phones.forEach(p => p.used = true);
   laf = [];
+
+  boxes2.forEach(b => b.used = false);
+  coins2.forEach(c => c.collected = false);
+  checkpoints2.forEach(c => { c.reached = false; c.pop = 0; });
+  platforms2.forEach(p => p.broken = false);
+  items = [];
+  foodNotify = null;
 
   player.big = false; player.w = BASE_W; player.h = BASE_H;
   player.x = 0; player.respawnX = 0;
@@ -626,6 +680,68 @@ const simitEl = document.getElementById("simit");
 const sendBtn = document.getElementById("send-btn");
 
 const BONUS_ROOM_FOOD_COUNT = 7;
+
+function handleLevel2SpecialPickup() {
+  bonusRoom.collected++;
+  const theme = bonusRoom.theme;
+  if (theme.triggerAt && bonusRoom.collected === theme.triggerAt) {
+    bonusRoom.message = { text: theme.triggerMsg, timer: theme.triggerDuration };
+  }
+  if (theme.exitCharMsg && bonusRoom.collected === theme.itemCount) {
+    bonusRoom.exitChar = { phase: "emerging", t: 0 };
+  }
+  if (theme.drunkMsg && bonusRoom.collected === theme.itemCount) {
+    bonusRoom.drunk = { active: true, t: 0 };
+    bonusRoom.message = { text: theme.drunkMsg, timer: theme.drunkDuration };
+    triggerShake(0.3, 4);
+  }
+}
+
+function enterPipe2(p) {
+  playCheckpointSound();
+  const theme = p.theme2;
+  const floorY = 460;
+  const exitPipe = { x: W - 150, y: floorY - 70, w: 58, h: 70 };
+  const roomSolids = [
+    { x: -50, y: floorY, w: W + 100, h: 120 },
+    exitPipe,
+  ];
+  const roomItems = [];
+  for (let i = 0; i < theme.itemCount; i++) {
+    const rx = 110 + i * (640 / (theme.itemCount - 1 || 1));
+    const ry = floorY - 90 - (i % 3) * 46;
+    roomItems.push({
+      x: rx, y: ry, w: 24, h: 30, kind: theme.key, variant: i,
+      collected: false, bobT: Math.random() * 10,
+    });
+  }
+  bonusRoom = {
+    isLevel2Special: true,
+    theme,
+    solids: roomSolids,
+    items: roomItems,
+    exitPipe,
+    reviewing: false,
+    floorY,
+    collected: 0,
+    message: null,
+    exitChar: null,
+    drunk: null,
+    returnX: player.x,
+    returnRespawnX: player.respawnX,
+  };
+  player.x = 60;
+  player.y = floorY - player.h;
+  player.vx = 0; player.vy = 0;
+  if (player.crouching) setCrouch(false);
+  player.jumpsUsed = 0;
+  camX = 0;
+  gameState = "bonusroom";
+
+  bgMusic.pause();
+  pipeMusic.currentTime = 0;
+  pipeMusic.play().catch(() => {});
+}
 
 function enterPipe(p) {
   playCheckpointSound();
@@ -917,11 +1033,13 @@ function update(dt) {
     if (down && player.onGround && !player.crouching) setCrouch(true);
     else if (!down && player.crouching) setCrouch(false);
 
+    const drunkBlocking = bonusRoom.drunk && bonusRoom.drunk.active;
+
     const ep = bonusRoom.exitPipe;
     const onExitPipe = player.onGround &&
       player.x + player.w > ep.x + 6 && player.x < ep.x + ep.w - 6 &&
       Math.abs(player.y + player.h - ep.y) < 8;
-    if (down && !downHeld && onExitPipe) {
+    if (down && !downHeld && onExitPipe && !drunkBlocking) {
       playPipeSound();
       exitBonusRoom();
       downHeld = down;
@@ -938,16 +1056,34 @@ function update(dt) {
         updateHud();
         playCollectSound();
         spawnParticles(it.x + it.w / 2, it.y + it.h / 2, 10, "#ffe07a");
+        if (bonusRoom.isLevel2Special) handleLevel2SpecialPickup();
       }
     }
 
-    const rp = bonusRoom.reviewPhone;
-    if (!rp.used && rectsOverlap(playerRect(), { x: rp.x, y: rp.y, w: rp.w, h: rp.h })) {
-      rp.used = true;
-      bonusRoom.reviewing = true;
-      bonusRoom.reviewT = 0;
-      playPipeSound();
-      sendBtn.classList.remove("hidden");
+    if (bonusRoom.reviewPhone) {
+      const rp = bonusRoom.reviewPhone;
+      if (!rp.used && rectsOverlap(playerRect(), { x: rp.x, y: rp.y, w: rp.w, h: rp.h })) {
+        rp.used = true;
+        bonusRoom.reviewing = true;
+        bonusRoom.reviewT = 0;
+        playPipeSound();
+        sendBtn.classList.remove("hidden");
+      }
+    }
+
+    if (bonusRoom.message) {
+      bonusRoom.message.timer -= dt;
+      if (bonusRoom.message.timer <= 0) bonusRoom.message = null;
+    }
+    if (bonusRoom.exitChar) {
+      const ec = bonusRoom.exitChar;
+      ec.t += dt;
+      if (ec.phase === "emerging" && ec.t > 1) { ec.phase = "talking"; ec.t = 0; }
+      else if (ec.phase === "talking" && ec.t > bonusRoom.theme.exitCharDuration) { ec.phase = "done"; }
+    }
+    if (bonusRoom.drunk && bonusRoom.drunk.active) {
+      bonusRoom.drunk.t += dt;
+      if (bonusRoom.drunk.t > bonusRoom.theme.drunkDuration) bonusRoom.drunk.active = false;
     }
     return;
   }
@@ -1084,8 +1220,13 @@ function update(dt) {
       if (headY < b.y + b.h && headY > b.y - 6) {
         b.used = true;
         player.vy = 40;
-        const food = FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)];
-        items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop", food });
+        if (currentLevel === 2) {
+          const gift = GIFT_TYPES[Math.floor(Math.random() * GIFT_TYPES.length)];
+          items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop", gift });
+        } else {
+          const food = FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)];
+          items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop", food });
+        }
         score += 50;
         updateHud();
       }
@@ -1127,7 +1268,7 @@ function update(dt) {
       Math.abs(player.y + player.h - p.y) < 8;
     if (down && !downHeld && onPipe) {
       playPipeSound();
-      enterPipe(p);
+      if (p.theme2) enterPipe2(p); else enterPipe(p);
       downHeld = down;
       return;
     }
@@ -1306,7 +1447,7 @@ function update(dt) {
       score += 200;
       updateHud();
       it.collected = true;
-      foodNotify = { food: it.food, timer: 2.2 };
+      foodNotify = it.gift ? { gift: it.gift, timer: 2.2 } : { food: it.food, timer: 2.2 };
       playCollectSound();
       spawnParticles(it.x + it.w / 2, it.y + it.h / 2, 10, "#ffe07a");
       triggerShake(0.1, 2);
@@ -2009,12 +2150,12 @@ function drawPipeShape(x, y, w, h, shadowY, showSign, label) {
 
   // tabela
   const text = label || "5 YILDIZLI MEKAN";
-  let fontSize = 11;
-  ctx.font = `bold ${fontSize}px Trebuchet MS`;
+  let fontSize = 9;
+  ctx.font = `${fontSize}px "Press Start 2P", monospace`;
   const maxTextW = 190;
-  while (ctx.measureText(text).width > maxTextW && fontSize > 7) {
+  while (ctx.measureText(text).width > maxTextW && fontSize > 5) {
     fontSize -= 1;
-    ctx.font = `bold ${fontSize}px Trebuchet MS`;
+    ctx.font = `${fontSize}px "Press Start 2P", monospace`;
   }
   const tw = ctx.measureText(text).width;
   const bw = tw + 20, bh = 22;
@@ -2026,7 +2167,7 @@ function drawPipeShape(x, y, w, h, shadowY, showSign, label) {
   ctx.strokeRect(bx, by, bw, bh);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.fillText(text, x + w / 2, by + 15);
+  ctx.fillText(text, x + w / 2, by + 14);
   ctx.fillStyle = "#888";
   ctx.fillRect(x + w / 2 - 2, by + bh, 4, 14);
 }
@@ -2034,8 +2175,12 @@ function drawPipeShape(x, y, w, h, shadowY, showSign, label) {
 function drawPipe(p) {
   const x = p.x - camX;
   if (x + p.w < 0 || x > W) return;
-  const stars = p.theme ? "★".repeat(p.theme.stars) : "★★★★★";
-  const label = p.theme ? `${p.theme.name} (${stars})` : "5 YILDIZLI MEKAN";
+  let label = "5 YILDIZLI MEKAN";
+  if (p.theme) {
+    label = `${p.theme.name} (${"★".repeat(p.theme.stars)})`;
+  } else if (p.theme2) {
+    label = p.theme2.name;
+  }
   drawPipeShape(x, p.y, p.w, p.h, GROUND_Y + 3, true, label);
 }
 
@@ -2053,13 +2198,13 @@ function drawSign(x, text) {
   ctx.strokeRect(sx - 75, GROUND_Y - 150, 150, 54);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  let fontSize = 18;
-  ctx.font = `bold ${fontSize}px Trebuchet MS`;
-  while (ctx.measureText(text).width > 138 && fontSize > 10) {
+  let fontSize = 13;
+  ctx.font = `${fontSize}px "Press Start 2P", monospace`;
+  while (ctx.measureText(text).width > 138 && fontSize > 6) {
     fontSize -= 1;
-    ctx.font = `bold ${fontSize}px Trebuchet MS`;
+    ctx.font = `${fontSize}px "Press Start 2P", monospace`;
   }
-  ctx.fillText(text, sx, GROUND_Y - 118);
+  ctx.fillText(text, sx, GROUND_Y - 116);
 }
 
 function drawBox(b) {
@@ -2100,6 +2245,101 @@ function roundRect(x, y, w, h, r) {
 
 const FOOD_TYPES = ["simit", "durum", "pogaca", "midye", "kumpir"];
 const FOOD_NAMES = { simit: "Simit", durum: "Dürüm", pogaca: "Poğaça", midye: "Midye Dolma", kumpir: "Kumpir" };
+
+const GIFT_TYPES = ["magnet", "anahtarlik", "deniz_kabugu", "mini_bayrak", "kartpostal"];
+const GIFT_NAMES = {
+  magnet: "Mıknatıs", anahtarlik: "Anahtarlık", deniz_kabugu: "Deniz Kabuğu",
+  mini_bayrak: "Mini Bayrak", kartpostal: "Kartpostal",
+};
+
+function drawGiftIcon(type, cx, cy, w, h) {
+  const x = cx - w / 2, y = cy - h / 2;
+  if (type === "magnet") {
+    ctx.fillStyle = "#e8e2d0";
+    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.strokeStyle = "#c9974a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.fillStyle = "#4a7fb5";
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 5);
+    ctx.lineTo(cx + 5, y + h * 0.4);
+    ctx.lineTo(cx, y + h - 6);
+    ctx.lineTo(cx - 5, y + h * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(cx, y + h * 0.42, 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === "anahtarlik") {
+    ctx.strokeStyle = "#c9974a";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, y + 6, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#4aa0c9";
+    ctx.beginPath();
+    ctx.moveTo(cx - 7, y + 13);
+    ctx.lineTo(cx + 7, y + 13);
+    ctx.lineTo(cx + 7, y + h - 4);
+    ctx.lineTo(cx, y + h);
+    ctx.lineTo(cx - 7, y + h - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 6px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText("AY", cx, y + h - 8);
+  } else if (type === "deniz_kabugu") {
+    ctx.fillStyle = "#f2c9a0";
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 2);
+    for (let i = 0; i <= 6; i++) {
+      const a = Math.PI * (i / 6);
+      ctx.lineTo(cx + Math.cos(Math.PI - a) * (w * 0.42), y + 4 + Math.sin(a) * (h * 0.75));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#c98a5a";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 6; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx, y + 2);
+      const a = Math.PI * (i / 6);
+      ctx.lineTo(cx + Math.cos(Math.PI - a) * (w * 0.42), y + 4 + Math.sin(a) * (h * 0.75));
+      ctx.stroke();
+    }
+  } else if (type === "mini_bayrak") {
+    ctx.fillStyle = "#8a5a3c";
+    ctx.fillRect(cx - 1, y, 2, h);
+    ctx.fillStyle = "#e30a17";
+    ctx.beginPath();
+    ctx.moveTo(cx + 1, y + 2);
+    ctx.lineTo(cx + w * 0.42, y + h * 0.22);
+    ctx.lineTo(cx + 1, y + h * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(cx + 10, y + h * 0.2, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // kartpostal
+    ctx.fillStyle = "#f5f0e0";
+    ctx.fillRect(x, y, w, h * 0.7);
+    ctx.strokeStyle = "#999";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h * 0.7);
+    ctx.strokeStyle = "#4a7fb5";
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y + h * 0.35);
+    ctx.quadraticCurveTo(x + w * 0.4, y + 4, x + w - 4, y + h * 0.3);
+    ctx.stroke();
+    ctx.fillStyle = "#e0304f";
+    ctx.fillRect(x + w - 9, y + 3, 7, 7);
+  }
+}
 
 const COCKTAIL_TYPES = ["red", "blue", "green", "yellow"];
 const COCKTAIL_COLORS = { red: "#e0304f", blue: "#2f8fe0", green: "#4fae5a", yellow: "#e0b830" };
@@ -2346,7 +2586,8 @@ function drawItem(it) {
   ctx.ellipse(cx, it.y + it.h + 2, it.w * 0.45, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  drawFoodIcon(it.food, cx, cy, it.w, it.h);
+  if (it.gift) drawGiftIcon(it.gift, cx, cy, it.w, it.h);
+  else drawFoodIcon(it.food, cx, cy, it.w, it.h);
 }
 
 function drawFoodNotify() {
@@ -2361,11 +2602,13 @@ function drawFoodNotify() {
   ctx.strokeStyle = "#ffcc00";
   ctx.lineWidth = 2;
   ctx.stroke();
-  drawFoodIcon(foodNotify.food, bx + boxW / 2, by + 44, 62, 72);
+  if (foodNotify.gift) drawGiftIcon(foodNotify.gift, bx + boxW / 2, by + 44, 62, 72);
+  else drawFoodIcon(foodNotify.food, bx + boxW / 2, by + 44, 62, 72);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 14px Trebuchet MS";
+  ctx.font = '9px "Press Start 2P", monospace';
   ctx.textAlign = "center";
-  ctx.fillText(FOOD_NAMES[foodNotify.food] + "!", bx + boxW / 2, by + boxH - 12);
+  const label = foodNotify.gift ? GIFT_NAMES[foodNotify.gift] : FOOD_NAMES[foodNotify.food];
+  ctx.fillText(label + "!", bx + boxW / 2, by + boxH - 12);
   ctx.restore();
 }
 
@@ -2436,7 +2679,7 @@ function drawEnemy(en) {
 
 function drawHint(x, y, text) {
   const bob = Math.sin(performance.now() / 220) * 4;
-  ctx.font = "bold 12px Trebuchet MS";
+  ctx.font = '8px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   const tw = ctx.measureText(text).width;
   const boxW = tw + 20, boxH = 24;
@@ -2484,7 +2727,7 @@ function drawPhoneIcon(x, y, scale) {
 }
 
 function drawSpeechBubble(cx, tailY, text) {
-  ctx.font = "bold 11px Trebuchet MS";
+  ctx.font = '8px "Press Start 2P", monospace';
   const maxWidth = 190;
   const words = text.split(" ");
   const lines = [];
@@ -2668,7 +2911,7 @@ function drawLafLayer() {
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#c0392b";
-    ctx.font = "bold 12px Trebuchet MS";
+    ctx.font = '9px "Press Start 2P", monospace';
     ctx.fillText("LAF", x, l.y + 4);
   }
 }
@@ -2853,7 +3096,7 @@ function drawGoal2() {
   ctx.lineWidth = 2;
   ctx.strokeRect(gx - 15, baseY - 236, 130, 22);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 12px Trebuchet MS";
+  ctx.font = '9px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.fillText("CUNDA FENERİ", gx + 50, baseY - 220);
 }
@@ -2928,27 +3171,27 @@ function drawGoal() {
   ctx.lineWidth = 2;
   ctx.strokeRect(gx - 15, baseY - 200, 120, 22);
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 12px Trebuchet MS";
+  ctx.font = '9px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.fillText("KIZ KULESİ", gx + 45, baseY - 184);
 }
 
-function drawLeg(px, py, length, width, angle) {
+function drawLeg(px, py, length, width, angle, color) {
   ctx.save();
   ctx.translate(px, py);
   ctx.rotate(angle);
-  ctx.fillStyle = "#1b2a4a";
+  ctx.fillStyle = color || "#1b2a4a";
   ctx.fillRect(-width / 2, 0, width, length);
   ctx.fillStyle = "#fff";
   ctx.fillRect(-width / 2 - 1, length - 6, width + 4, 6);
   ctx.restore();
 }
 
-function drawArm(px, py, length, width, angle) {
+function drawArm(px, py, length, width, angle, color) {
   ctx.save();
   ctx.translate(px, py);
   ctx.rotate(angle);
-  ctx.fillStyle = "#c0392b";
+  ctx.fillStyle = color || "#c0392b";
   ctx.fillRect(-width / 2, 0, width, length);
   ctx.fillStyle = "#e0ac69";
   ctx.fillRect(-width / 2, length - 5, width, 5);
@@ -3005,22 +3248,28 @@ function drawPlayer() {
   ctx.scale(player.facing, 1);
   ctx.translate(-w / 2, 0);
 
+  // seviye 2'de (Ayvalık/Cunda) yazlık kıyafet: şort + askılı tişört
+  const isSummer = currentLevel === 2;
+  const legColor = isSummer ? "#4a7fb5" : "#1b2a4a";
+  const bodyColor = isSummer ? "#2fb5a0" : "#c0392b";
+  const armColor = isSummer ? "#e0ac69" : "#c0392b";
+
   const hipY = y + h - legH;
   const legW = w * 0.32;
-  drawLeg(w * 0.72, hipY, legH, legW, legR);
-  drawLeg(w * 0.28, hipY, legH, legW, legL);
+  drawLeg(w * 0.72, hipY, legH, legW, legR, legColor);
+  drawLeg(w * 0.28, hipY, legH, legW, legL, legColor);
 
-  // eşofman üstü (gövde) - kırmızı, beyaz şerit
+  // gövde (eşofman ya da yazlık tişört) - beyaz şerit
   const bodyY = y + h - legH - bodyH;
-  ctx.fillStyle = "#c0392b";
+  ctx.fillStyle = bodyColor;
   ctx.fillRect(0, bodyY, w, bodyH);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, bodyY + bodyH * 0.4, w, 4);
 
   const shoulderY = bodyY + 4;
   const armLen = bodyH * 0.62, armW = w * 0.22;
-  drawArm(w + 1, shoulderY, armLen, armW, armR);
-  drawArm(-1, shoulderY, armLen, armW, armL);
+  drawArm(w + 1, shoulderY, armLen, armW, armR, armColor);
+  drawArm(-1, shoulderY, armLen, armW, armL, armColor);
 
   // kafa
   const headCX = w / 2, headCY = bodyY - headR + 4;
@@ -3146,17 +3395,17 @@ function drawReviewScreen() {
 
   // yıldızlar
   ctx.fillStyle = "#ffd700";
-  ctx.font = "bold 24px Trebuchet MS";
+  ctx.font = '16px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.fillText("★".repeat(theme.stars) + "☆".repeat(5 - theme.stars), sx + sw / 2, sy + 44);
   ctx.fillStyle = "#aaa";
-  ctx.font = "bold 11px Trebuchet MS";
+  ctx.font = '7px "Press Start 2P", monospace';
   ctx.fillText("GOOGLE YORUMU", sx + sw / 2, sy + 64);
 
   // daktilo efektli metin
   const revealCount = Math.min(reviewText.length, Math.floor(bonusRoom.reviewT * 24));
   const shown = reviewText.slice(0, revealCount);
-  ctx.font = "13px Trebuchet MS";
+  ctx.font = '8px "Press Start 2P", monospace';
   ctx.fillStyle = "#eee";
   ctx.textAlign = "left";
   const lines = wrapTextLines(shown, sw - 32);
@@ -3248,17 +3497,17 @@ function drawPhoneCutscene() {
       ctx.fill();
     }
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 11px Trebuchet MS";
+    ctx.font = '7px "Press Start 2P", monospace';
     ctx.textAlign = "left";
     ctx.fillText("REC " + Math.max(0, Math.ceil(phoneTimer)) + "sn", sx + 26, sy + 20);
 
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 13px Trebuchet MS";
+    ctx.font = '8px "Press Start 2P", monospace';
     ctx.textAlign = "center";
     ctx.fillText("Video kaydediliyor...", faceCX, py + ph - 16);
   } else {
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 13px Trebuchet MS";
+    ctx.font = '8px "Press Start 2P", monospace';
     ctx.textAlign = "center";
     ctx.fillText("DOĞUŞ'A GÖNDERİLİYOR...", faceCX, py + ph - 16);
   }
@@ -3369,7 +3618,7 @@ function drawParticlesLayer() {
 
 function drawComboPopupsLayer() {
   ctx.textAlign = "center";
-  ctx.font = "bold 14px Trebuchet MS";
+  ctx.font = '9px "Press Start 2P", monospace';
   for (const p of comboPopups) {
     ctx.globalAlpha = Math.max(0, p.timer / 0.9);
     ctx.strokeStyle = "#7a4a00";
@@ -3386,7 +3635,7 @@ function drawBonusNotify() {
   if (!bonusNotify || bonusNotify.timer <= 0) return;
   ctx.save();
   ctx.globalAlpha = Math.min(1, bonusNotify.timer * 2);
-  ctx.font = "bold 20px Trebuchet MS";
+  ctx.font = '13px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.fillStyle = "#000";
   ctx.fillText(bonusNotify.text, W / 2 + 2, 82);
@@ -3439,6 +3688,306 @@ function drawThemeDecor(bg, accent) {
   }
 }
 
+const ICE_CREAM_COLORS = ["#f2a0c0", "#a0d8f2", "#f2e0a0", "#a0f2b0", "#c9a0f2", "#f2b080"];
+function drawIceCreamIcon(cx, cy, w, h, variant) {
+  const y = cy - h / 2;
+  const color = ICE_CREAM_COLORS[variant % ICE_CREAM_COLORS.length];
+  ctx.fillStyle = "#c9974a";
+  ctx.beginPath();
+  ctx.moveTo(cx - w * 0.22, y + h * 0.55);
+  ctx.lineTo(cx + w * 0.22, y + h * 0.55);
+  ctx.lineTo(cx, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#a97a34";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - w * 0.15, y + h * 0.65);
+  ctx.lineTo(cx + w * 0.1, y + h * 0.85);
+  ctx.moveTo(cx + w * 0.15, y + h * 0.65);
+  ctx.lineTo(cx - w * 0.1, y + h * 0.85);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, y + h * 0.42, w * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, y + h * 0.2, w * 0.24, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.beginPath();
+  ctx.arc(cx - w * 0.08, y + h * 0.16, w * 0.08, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+const PIDE_TOPPINGS = ["#c0392b", "#e0b83a", "#4fa85e", "#8a5a3c"];
+function drawPideIcon(cx, cy, w, h, variant) {
+  const x = cx - w / 2, y = cy - h / 2;
+  ctx.fillStyle = "#e8c477";
+  ctx.beginPath();
+  ctx.moveTo(x, y + h * 0.5);
+  ctx.quadraticCurveTo(cx, y - h * 0.15, x + w, y + h * 0.5);
+  ctx.quadraticCurveTo(cx, y + h * 0.75, x, y + h * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = PIDE_TOPPINGS[variant % PIDE_TOPPINGS.length];
+  ctx.beginPath();
+  ctx.ellipse(cx, y + h * 0.42, w * 0.32, h * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+const WINE_COLORS = ["#4a1a2a", "#e8d9a0", "#c9556a", "#2a4a2a", "#7a2a3a"];
+function drawWineIcon(cx, cy, w, h, variant) {
+  const x = cx - w / 2, y = cy - h / 2;
+  const color = WINE_COLORS[variant % WINE_COLORS.length];
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.2, y + h * 0.35);
+  ctx.lineTo(x + w * 0.8, y + h * 0.35);
+  ctx.lineTo(x + w * 0.7, y + h);
+  ctx.lineTo(x + w * 0.3, y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - w * 0.08, y, w * 0.16, h * 0.4);
+  ctx.fillStyle = "#f5f0e0";
+  ctx.fillRect(x + w * 0.28, y + h * 0.55, w * 0.44, h * 0.22);
+}
+
+function drawLevel2ItemIcon(it, cx, cy) {
+  if (it.kind === "dondurma") drawIceCreamIcon(cx, cy, it.w, it.h, it.variant);
+  else if (it.kind === "pide") drawPideIcon(cx, cy, it.w, it.h, it.variant);
+  else drawWineIcon(cx, cy, it.w, it.h, it.variant);
+}
+
+const THEME2_STYLE = {
+  dondurma: { wall: "#2a1830", accent: "#f2a0c0", light: "rgba(255,180,220,0.7)" },
+  pide: { wall: "#2a1c10", accent: "#e0a030", light: "rgba(255,190,110,0.75)" },
+  sarap: { wall: "#180f14", accent: "#8a2a3a", light: "rgba(180,90,110,0.5)" },
+};
+
+function drawPideUstasi(x, baseY) {
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = "#e0a030";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, baseY - 70, 16, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, baseY - 88, 14, Math.PI, 2 * Math.PI);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(224,160,48,0.5)";
+  ctx.fillRect(x - 14, baseY - 96, 28, 8);
+  ctx.beginPath();
+  ctx.moveTo(x - 8, baseY - 66);
+  ctx.lineTo(x - 2, baseY - 63);
+  ctx.lineTo(x - 8, baseY - 60);
+  ctx.moveTo(x + 8, baseY - 66);
+  ctx.lineTo(x + 2, baseY - 63);
+  ctx.lineTo(x + 8, baseY - 60);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, baseY - 54);
+  ctx.lineTo(x, baseY - 10);
+  ctx.moveTo(x - 18, baseY - 40);
+  ctx.lineTo(x, baseY - 54);
+  ctx.lineTo(x + 18, baseY - 40);
+  ctx.stroke();
+  // tandır
+  ctx.strokeStyle = "#8a5a3c";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY - 4, 26, 10, 0, 0, Math.PI * 2);
+  ctx.moveTo(x - 26, baseY - 4);
+  ctx.lineTo(x - 20, baseY - 50);
+  ctx.lineTo(x + 20, baseY - 50);
+  ctx.lineTo(x + 26, baseY - 4);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawExitChar() {
+  const ec = bonusRoom.exitChar;
+  if (!ec || ec.phase === "done") return;
+  const doorX = W - 380;
+  const floorY = bonusRoom.floorY;
+
+  ctx.fillStyle = "#3a2a1c";
+  ctx.fillRect(doorX - 24, floorY - 90, 48, 90);
+  ctx.strokeStyle = "#1c130c";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(doorX - 24, floorY - 90, 48, 90);
+  ctx.fillStyle = "#c9974a";
+  ctx.beginPath();
+  ctx.arc(doorX + 16, floorY - 45, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  const emergeT = ec.phase === "emerging" ? Math.min(1, ec.t / 1) : 1;
+  const charX = doorX;
+  const charY = floorY - 6;
+  ctx.save();
+  ctx.globalAlpha = emergeT;
+  ctx.fillStyle = "#3a6ea5";
+  ctx.fillRect(charX - 11, charY - 52, 22, 34);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(charX - 11, charY - 30, 22, 4);
+  ctx.fillStyle = "#2a2a2a";
+  ctx.fillRect(charX - 9, charY - 20, 18, 20);
+  ctx.fillStyle = "#e0ac69";
+  ctx.beginPath();
+  ctx.arc(charX, charY - 60, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6a6a6a";
+  ctx.beginPath();
+  ctx.arc(charX, charY - 64, 11.5, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "#5a4a3a";
+  ctx.fillRect(charX - 6, charY - 57, 12, 2.5);
+  ctx.restore();
+
+  if (ec.phase === "talking") {
+    drawSpeechBubble(charX, charY - 78, bonusRoom.theme.exitCharMsg);
+  }
+}
+
+function drawBonusRoomMessage() {
+  if (!bonusRoom.message) return;
+  const msg = bonusRoom.message;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, msg.timer * 2);
+  ctx.font = '11px "Press Start 2P", monospace';
+  ctx.textAlign = "center";
+  const lines = wrapTextLines(msg.text, W - 120);
+  const boxH = lines.length * 22 + 24;
+  const boxY = 130;
+  ctx.fillStyle = "rgba(10,10,15,0.85)";
+  roundRect(W / 2 - (W - 100) / 2, boxY, W - 100, boxH, 10);
+  ctx.fill();
+  ctx.strokeStyle = "#ffcc00";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#ffcc00";
+  lines.forEach((line, i) => {
+    ctx.fillText(line, W / 2, boxY + 30 + i * 22);
+  });
+  ctx.restore();
+}
+
+function drawBonusRoomScene2() {
+  const theme = bonusRoom.theme;
+  const style = THEME2_STYLE[theme.key] || THEME2_STYLE.dondurma;
+  const drunk = bonusRoom.drunk && bonusRoom.drunk.active;
+
+  ctx.save();
+  if (drunk) {
+    const t = bonusRoom.drunk.t;
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(Math.sin(t * 1.6) * 0.04);
+    ctx.translate(-W / 2 + Math.sin(t * 2.1) * 10, -H / 2 + Math.cos(t * 1.7) * 6);
+    ctx.filter = "blur(2.5px)";
+  }
+
+  ctx.fillStyle = style.wall;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, bonusRoom.floorY);
+    ctx.stroke();
+  }
+
+  for (let x = 60; x < W; x += 140) {
+    const glow = ctx.createRadialGradient(x, 40, 2, x, 40, 34);
+    glow.addColorStop(0, style.light);
+    glow.addColorStop(1, "rgba(255,210,120,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - 34, 6, 68, 68);
+    ctx.fillStyle = "#ffd27a";
+    ctx.beginPath();
+    ctx.arc(x, 40, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (theme.key === "pide") drawPideUstasi(170, bonusRoom.floorY);
+  if (theme.key === "sarap") {
+    for (let i = 0; i < 5; i++) {
+      const bx = 60 + i * 40;
+      ctx.fillStyle = "#5a3a24";
+      ctx.beginPath();
+      ctx.ellipse(bx, bonusRoom.floorY - 30, 18, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#3a2416";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+  if (theme.key === "dondurma") {
+    ctx.fillStyle = "#f2a0c0";
+    ctx.beginPath();
+    ctx.arc(W - 80, 90, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#a0d8f2";
+    ctx.beginPath();
+    ctx.arc(W - 80, 60, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c9974a";
+    ctx.beginPath();
+    ctx.moveTo(W - 100, 100);
+    ctx.lineTo(W - 60, 100);
+    ctx.lineTo(W - 80, 150);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = style.accent;
+  ctx.font = '14px "Press Start 2P", monospace';
+  ctx.textAlign = "center";
+  ctx.fillText(theme.name, W / 2, 108);
+
+  // zemin
+  ctx.fillStyle = "#1c1c22";
+  ctx.fillRect(0, bonusRoom.floorY, W, H - bonusRoom.floorY);
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, bonusRoom.floorY);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  ctx.fillStyle = style.accent;
+  ctx.fillRect(0, bonusRoom.floorY, W, 3);
+
+  for (const it of bonusRoom.items) {
+    if (it.collected) continue;
+    const bobY = it.y + Math.sin(it.bobT * 2) * 4;
+    ctx.fillStyle = "#3a2a1c";
+    ctx.fillRect(it.x - 4, bonusRoom.floorY - 6, it.w + 8, 6);
+    drawLevel2ItemIcon(it, it.x + it.w / 2, bobY + it.h / 2);
+    ctx.fillStyle = style.accent;
+    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.textAlign = "center";
+    ctx.fillText("+150", it.x + it.w / 2, bobY - 6);
+  }
+
+  drawExitChar();
+
+  const ep = bonusRoom.exitPipe;
+  drawPipeShape(ep.x, ep.y, ep.w, ep.h, bonusRoom.floorY + 3, false);
+  drawHint(ep.x + ep.w / 2, ep.y - 6, "Çıkmak için üstüne çık, sonra aşağı bas");
+
+  drawPlayer();
+  drawParticlesLayer();
+
+  ctx.restore();
+  ctx.filter = "none";
+
+  drawBonusRoomMessage();
+}
+
 function drawBonusRoomScene() {
   const theme = bonusRoom.theme || PIPE_THEMES[1];
   const style = THEME_STYLE[theme.bg] || THEME_STYLE.bar;
@@ -3472,7 +4021,7 @@ function drawBonusRoomScene() {
 
   // başlık
   ctx.fillStyle = style.accent;
-  ctx.font = "bold 20px Trebuchet MS";
+  ctx.font = '14px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.fillText(`${"★".repeat(theme.stars)} ${theme.name}`, W / 2, 108);
 
@@ -3484,10 +4033,10 @@ function drawBonusRoomScene() {
   ctx.lineWidth = 2;
   ctx.strokeRect(menuX, menuY, menuW, menuH);
   ctx.fillStyle = style.accent;
-  ctx.font = "bold 13px Trebuchet MS";
+  ctx.font = '10px "Press Start 2P", monospace';
   ctx.textAlign = "left";
   ctx.fillText("MENÜ", menuX + 14, menuY + 22);
-  ctx.font = "11px Trebuchet MS";
+  ctx.font = '8px "Press Start 2P", monospace';
   theme.menu.forEach(([name, price], i) => {
     const yy = menuY + 44 + i * 20;
     ctx.fillStyle = "#eee";
@@ -3522,7 +4071,7 @@ function drawBonusRoomScene() {
     else if (it.coffee) drawCoffeeIcon(it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
     else drawKebapIcon(it.x + it.w / 2, bobY + it.h / 2, it.w, it.h);
     ctx.fillStyle = style.accent;
-    ctx.font = "bold 10px Trebuchet MS";
+    ctx.font = '7px "Press Start 2P", monospace';
     ctx.textAlign = "center";
     ctx.fillText("+150", it.x + it.w / 2, bobY - 6);
   }
@@ -3546,7 +4095,8 @@ function drawBonusRoomScene() {
 
 function draw() {
   if (gameState === "bonusroom") {
-    drawBonusRoomScene();
+    if (bonusRoom.isLevel2Special) drawBonusRoomScene2();
+    else drawBonusRoomScene();
     return;
   }
   ctx.save();
