@@ -19,9 +19,10 @@ const JUMP_V = -640;
 const BIG_JUMP_V = -700;
 
 // ---------- Seviye verisi (prosedürel, orijinalin 2 katı uzunlukta) ----------
-const LEVEL_END = 17160;
-const GOAL_X = 16900;
+let LEVEL_END = 17160;
+let GOAL_X = 16900;
 const GREETER_X = GOAL_X - 250;
+let currentLevel = 1;
 
 // Zemin parçaları (aralarında çukurlar var) — çukur genişlikleri orijinaldeki
 // gibi zıplanabilir kalsın diye sabit bir örüntüyle üretiliyor.
@@ -109,15 +110,18 @@ const moto = (() => {
 })();
 
 // Cep telefonları: alınca "video çekme" ara sahnesi başlatır (yolda 3 tane)
-function nearestGroundX(targetX) {
+function nearestXInSegs(segs, targetX) {
   let best = targetX, bestDist = Infinity;
-  for (const s of groundSegs) {
+  for (const s of segs) {
     if (s.x2 - s.x1 < 200) continue;
     const clamped = Math.max(s.x1 + 60, Math.min(targetX, s.x2 - 60));
     const dist = Math.abs(clamped - targetX);
     if (dist < bestDist) { bestDist = dist; best = clamped; }
   }
   return best;
+}
+function nearestGroundX(targetX) {
+  return nearestXInSegs(groundSegs, targetX);
 }
 
 const phones = [0.12, 0.45, 0.75].map((frac) => ({
@@ -233,6 +237,157 @@ function solidRectsAt() {
 }
 const solids = solidRectsAt();
 
+// Seviye 1'in tüm verisi yedekleniyor; seviye 2'den dönüşte
+// (yeniden başlatmada) buradan geri yükleniyor.
+const LEVEL1_BACKUP = {
+  groundSegs: [...groundSegs], platforms: [...platforms], signs: [...signs],
+  coins: [...coins], checkpoints: [...checkpoints], enemyDefs: [...enemyDefs],
+  flyingEnemyDefs: [...flyingEnemyDefs], landmarks: [...landmarks],
+  pipes: [...pipes], boxes: [...boxes], secrets: [...secrets],
+  solids: [...solids], LEVEL_END, GOAL_X,
+};
+
+// ---------- Seviye 2: Ayvalık ve Cunda ----------
+const LEVEL2_END = 8500;
+const GOAL2_X = 8300;
+
+const groundSegs2 = [];
+{
+  const segLens = [700, 820, 680, 900, 760, 840, 720, 880, 700, 800, 760, 820];
+  const gapLens = [90, 120, 100, 140, 110, 95, 130, 105, 115, 100, 125, 90];
+  let x = -200;
+  let i = 0;
+  while (x < LEVEL2_END + 300) {
+    const segLen = segLens[i % segLens.length];
+    groundSegs2.push({ x1: x, x2: x + segLen });
+    x += segLen + gapLens[i % gapLens.length];
+    i++;
+  }
+  for (let s = 0; s < groundSegs2.length; s++) {
+    if (groundSegs2[s].x2 >= GOAL2_X - 300 && groundSegs2[s].x1 <= GOAL2_X) {
+      groundSegs2[s].x2 = Math.max(groundSegs2[s].x2, LEVEL2_END + 300);
+      groundSegs2.length = s + 1;
+      break;
+    }
+  }
+}
+
+const platforms2 = [];
+for (const seg of groundSegs2) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 500) continue;
+  const px = seg.x1 + segLen * 0.4;
+  const py = GROUND_Y - 90 - ((Math.abs(seg.x1) * 37) % 80);
+  const pw = 120 + ((Math.abs(seg.x1) * 13) % 60);
+  platforms2.push({ x: px, y: py, w: pw, h: 22, breakable: false, broken: false });
+}
+
+const signTexts2 = ["AYVALIK", "CUNDA", "ŞEYTAN SOFRASI", "SARIMSAKLI", "ALİBEY ADASI"];
+const signs2 = [];
+{
+  const usable = groundSegs2.filter(s => s.x1 > 0 && s.x1 < GOAL2_X - 500 && s.x2 - s.x1 > 300);
+  for (let i = 0; i < signTexts2.length; i++) {
+    const idx = Math.min(usable.length - 1, Math.floor(((i + 0.5) / signTexts2.length) * usable.length));
+    signs2.push({ x: usable[idx].x1 + 130, text: signTexts2[i] });
+  }
+}
+
+const coins2 = [];
+for (const seg of groundSegs2) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 400) continue;
+  const baseX = seg.x1 + segLen * 0.68;
+  for (let i = 0; i < 4; i++) {
+    coins2.push({
+      x: baseX + i * 24,
+      y: GROUND_Y - 96 - Math.sin((i / 3) * Math.PI) * 26,
+      w: 18, h: 18, collected: false,
+    });
+  }
+}
+
+const checkpoints2 = [];
+for (let x = 1000; x < GOAL2_X - 400; x += 1000) {
+  checkpoints2.push({ x: nearestXInSegs(groundSegs2, x), reached: false, pop: 0 });
+}
+
+// Düşmanlar: karizmatik güneş gözlüklü adamlar, %40'ı laf atıyor
+const enemyDefs2 = [];
+for (const seg of groundSegs2) {
+  const segLen = seg.x2 - seg.x1;
+  if (segLen < 450 || seg.x1 > GOAL2_X - 500) continue;
+  const margin = 70;
+  enemyDefs2.push({
+    x: seg.x1 + segLen * 0.3, x1: seg.x1 + margin, x2: seg.x2 - margin,
+    taunts: Math.random() < 0.4,
+  });
+}
+
+const landmarks2 = [
+  { x: LEVEL2_END * 0.10, type: "windmill" },
+  { x: LEVEL2_END * 0.25, type: "whitehouse_row" },
+  { x: LEVEL2_END * 0.40, type: "olive_grove" },
+  { x: LEVEL2_END * 0.55, type: "windmill" },
+  { x: LEVEL2_END * 0.70, type: "whitehouse_row" },
+  { x: LEVEL2_END * 0.85, type: "olive_grove" },
+];
+
+function restoreLevel1() {
+  currentLevel = 1;
+  groundSegs.length = 0; groundSegs.push(...LEVEL1_BACKUP.groundSegs);
+  platforms.length = 0; platforms.push(...LEVEL1_BACKUP.platforms);
+  signs.length = 0; signs.push(...LEVEL1_BACKUP.signs);
+  coins.length = 0; coins.push(...LEVEL1_BACKUP.coins);
+  checkpoints.length = 0; checkpoints.push(...LEVEL1_BACKUP.checkpoints);
+  enemyDefs.length = 0; enemyDefs.push(...LEVEL1_BACKUP.enemyDefs);
+  flyingEnemyDefs.length = 0; flyingEnemyDefs.push(...LEVEL1_BACKUP.flyingEnemyDefs);
+  landmarks.length = 0; landmarks.push(...LEVEL1_BACKUP.landmarks);
+  pipes.length = 0; pipes.push(...LEVEL1_BACKUP.pipes);
+  boxes.length = 0; boxes.push(...LEVEL1_BACKUP.boxes);
+  secrets.length = 0; secrets.push(...LEVEL1_BACKUP.secrets);
+  solids.length = 0; solids.push(...LEVEL1_BACKUP.solids);
+  LEVEL_END = LEVEL1_BACKUP.LEVEL_END;
+  GOAL_X = LEVEL1_BACKUP.GOAL_X;
+  moto.used = false;
+  phones.forEach(p => p.used = false);
+  laf = [];
+}
+
+function switchToLevel2() {
+  currentLevel = 2;
+  groundSegs.length = 0; groundSegs.push(...groundSegs2);
+  platforms.length = 0; platforms.push(...platforms2);
+  signs.length = 0; signs.push(...signs2);
+  coins.length = 0; coins.push(...coins2);
+  checkpoints.length = 0; checkpoints.push(...checkpoints2);
+  enemyDefs.length = 0; enemyDefs.push(...enemyDefs2);
+  flyingEnemyDefs.length = 0;
+  landmarks.length = 0; landmarks.push(...landmarks2);
+  pipes.length = 0;
+  boxes.length = 0;
+  secrets.length = 0;
+  solids.length = 0;
+  for (const g of groundSegs2) solids.push({ x: g.x1, y: GROUND_Y, w: g.x2 - g.x1, h: 300 });
+  for (const p of platforms2) solids.push(p);
+  LEVEL_END = LEVEL2_END;
+  GOAL_X = GOAL2_X;
+  moto.used = true;
+  phones.forEach(p => p.used = true);
+  laf = [];
+
+  player.big = false; player.w = BASE_W; player.h = BASE_H;
+  player.x = 0; player.respawnX = 0;
+  respawnPlayer();
+  resetEnemies();
+  resetFlyingEnemies();
+  camX = 0;
+  winTimer = 0;
+  dialogueState = "none"; endingPhase = "none"; hearts = [];
+  gameState = "playing";
+  updateHud();
+  overlay.classList.add("hidden");
+}
+
 // ---------- Oyuncu ----------
 const BASE_W = 22, BASE_H = 34;
 const GROW_FACTOR = 1.3;
@@ -332,6 +487,7 @@ function resetEnemies() {
   enemies = enemyDefs.map(e => ({
     x: e.x, x1: e.x1, x2: e.x2, y: GROUND_Y - 28,
     w: 20, h: 28, vx: 60, dead: false, walkT: Math.random() * 10,
+    taunts: e.taunts || false, tauntCooldown: 1.5 + Math.random() * 2,
   }));
 }
 resetEnemies();
@@ -407,6 +563,7 @@ function playSecretSound() { beep(520, 0.08, "sine", 0.14, 0); beep(780, 0.08, "
 function playBreakSound() { beep(140, 0.12, "sawtooth", 0.16, 0, 55); }
 function playPipeSound() { beep(200, 0.08, "square", 0.14, 0, 400); beep(400, 0.1, "square", 0.12, 0.08, 200); }
 function playHeartSound() { beep(500, 0.1, "sine", 0.12, 0); beep(750, 0.12, "sine", 0.12, 0.08); }
+function playTauntSound() { beep(320, 0.09, "sawtooth", 0.12, 0, 180); }
 
 // ---------- Kamera ----------
 let camX = 0;
@@ -447,6 +604,7 @@ let heartsThrown = 0;
 let heartTimer = 0;
 let hearts = [];
 let manThrowFlash = 0;
+let laf = [];
 const spiderman = { x: nearestGroundX(LEVEL_END * 0.58), phase: "idle", t: 0 };
 let phoneTimer = 0;
 let phoneAnimT = 0;
@@ -620,19 +778,16 @@ function showWinStep1() {
 function showWinStep2() {
   setOverlay({
     title: "",
-    text: "Bİ ŞEYLER YAPALIM MI?",
+    text: "SIRA AYVALIK'TA",
     marioFont: true,
-    buttons: [
-      { label: "TAMAM", onClick: () => { window.location.href = "https://ayarlayici.vercel.app"; } },
-      { label: "HAYIR", onClick: showWinStep3, danger: true },
-    ],
+    buttons: [{ label: "TAMAM", onClick: switchToLevel2 }],
   });
 }
 
-function showWinStep3() {
+function showFinalWin() {
   setOverlay({
-    title: "",
-    text: "",
+    title: "TEBRİKLER!",
+    text: "Ayvalık ve Cunda'yı da bitirdin! Oyun tamamlandı 🎉<br/>Skor: " + score,
     buttons: [{ label: "TEKRAR OYNA", onClick: startGame }],
   });
 }
@@ -644,6 +799,7 @@ pipeMusic.loop = true;
 
 function startGame() {
   ensureAudio();
+  if (currentLevel !== 1) restoreLevel1();
   score = 0; lives = 3;
   player.big = false; player.w = BASE_W; player.h = BASE_H;
   player.respawnX = 0;
@@ -653,6 +809,7 @@ function startGame() {
   endingPhase = "none";
   heartsThrown = 0; heartTimer = 0; hearts = []; manThrowFlash = 0;
   spiderman.phase = "idle"; spiderman.t = 0;
+  laf = [];
   respawnPlayer();
   boxes.forEach(b => b.used = false);
   moto.used = false;
@@ -1053,6 +1210,16 @@ function update(dt) {
     if (en.x < en.x1) { en.x = en.x1; en.vx = Math.abs(en.vx); }
     if (en.x + en.w > en.x2) { en.x = en.x2 - en.w; en.vx = -Math.abs(en.vx); }
 
+    if (en.taunts) {
+      en.tauntCooldown -= dt;
+      if (en.tauntCooldown <= 0 && Math.abs(player.x - en.x) < 280) {
+        const dir = player.x < en.x ? -1 : 1;
+        laf.push({ x: en.x + en.w / 2, y: en.y - 8, vx: dir * 170, w: 34, h: 22, hit: false });
+        en.tauntCooldown = 3.2 + Math.random() * 2;
+        playTauntSound();
+      }
+    }
+
     const er = { x: en.x, y: en.y, w: en.w, h: en.h };
     const pr = playerRect();
     if (rectsOverlap(pr, er)) {
@@ -1068,6 +1235,18 @@ function update(dt) {
     }
   }
   enemies = enemies.filter(e => !e.dead || e._t !== undefined);
+
+  // LAF balonlarını güncelle
+  for (const l of laf) l.x += l.vx * dt;
+  for (const l of laf) {
+    if (!l.hit && rectsOverlap(playerRect(), { x: l.x - l.w / 2, y: l.y - l.h / 2, w: l.w, h: l.h })) {
+      l.hit = true;
+      if (player.invincible <= 0 && !foodShielded()) shrinkPlayer();
+      spawnParticles(l.x, l.y, 8, "#ff8844");
+      triggerShake(0.1, 3);
+    }
+  }
+  laf = laf.filter(l => !l.hit && Math.abs(l.x - player.x) < 600);
 
   // Uçan düşmanları (güvercinler) güncelle
   for (const en of flyingEnemies) {
@@ -1221,19 +1400,36 @@ function drawBackground() {
     ctx.stroke();
   }
 
-  // uzak yaka siluetleri (Anadolu yakası apartmanları), paralaks
+  // uzak yaka siluetleri, paralaks
   const parX = -camX * 0.15;
-  const buildingColors = ["#8fb9d6", "#9cc3da", "#7fa9c9", "#a6cbe0"];
-  for (let i = 0; i < 40; i++) {
-    const bx = (i * 140 + parX) % (W + 300) - 150;
-    const bh = 40 + ((i * 37) % 90);
-    ctx.fillStyle = buildingColors[i % buildingColors.length];
-    ctx.fillRect(bx, GROUND_Y - 40 - bh, 60, bh);
-    // pencereler
-    ctx.fillStyle = "rgba(255, 244, 180, 0.55)";
-    for (let wy = GROUND_Y - 40 - bh + 8; wy < GROUND_Y - 46; wy += 14) {
-      for (let wx = bx + 6; wx < bx + 54; wx += 14) {
-        if ((wx + wy) % 27 < 14) ctx.fillRect(wx, wy, 6, 8);
+  if (currentLevel === 1) {
+    const buildingColors = ["#8fb9d6", "#9cc3da", "#7fa9c9", "#a6cbe0"];
+    for (let i = 0; i < 40; i++) {
+      const bx = (i * 140 + parX) % (W + 300) - 150;
+      const bh = 40 + ((i * 37) % 90);
+      ctx.fillStyle = buildingColors[i % buildingColors.length];
+      ctx.fillRect(bx, GROUND_Y - 40 - bh, 60, bh);
+      // pencereler
+      ctx.fillStyle = "rgba(255, 244, 180, 0.55)";
+      for (let wy = GROUND_Y - 40 - bh + 8; wy < GROUND_Y - 46; wy += 14) {
+        for (let wx = bx + 6; wx < bx + 54; wx += 14) {
+          if ((wx + wy) % 27 < 14) ctx.fillRect(wx, wy, 6, 8);
+        }
+      }
+    }
+  } else {
+    // Ayvalık/Cunda: alçak beyaz taş evler, kırmızı kiremit çatılar
+    for (let i = 0; i < 40; i++) {
+      const bx = (i * 100 + parX) % (W + 300) - 150;
+      const bh = 26 + ((i * 23) % 30);
+      ctx.fillStyle = i % 3 === 0 ? "#f2ede0" : "#e6dcc6";
+      ctx.fillRect(bx, GROUND_Y - 40 - bh, 44, bh);
+      ctx.fillStyle = "#b5502f";
+      ctx.fillRect(bx - 3, GROUND_Y - 40 - bh - 6, 50, 8);
+      ctx.fillStyle = "rgba(70,130,180,0.7)";
+      for (let wy = GROUND_Y - 40 - bh + 8; wy < GROUND_Y - 50; wy += 14) {
+        ctx.fillRect(bx + 6, wy, 7, 9);
+        ctx.fillRect(bx + 26, wy, 7, 9);
       }
     }
   }
@@ -1242,7 +1438,8 @@ function drawBackground() {
   // Kuzguncuk evleri (sahile yakın, daha az paralaks) — Çamlıca'dan
   // Kuzguncuk'a sahil hattı
   for (const lm of landmarks) {
-    const isNear = lm.type === "beylerbeyi_palace" || lm.type === "kuzguncuk_houses" || lm.type === "beylerbeyi_stadium";
+    const isNear = lm.type === "beylerbeyi_palace" || lm.type === "kuzguncuk_houses" ||
+      lm.type === "beylerbeyi_stadium" || lm.type === "whitehouse_row";
     const factor = isNear ? 0.55 : 0.15;
     const lx = (lm.x - camX) * factor + (W / 2) * (1 - factor);
     if (lx < -260 || lx > W + 260) continue;
@@ -1251,6 +1448,9 @@ function drawBackground() {
     else if (lm.type === "beylerbeyi_palace") drawBeylerbeyiPalace(lx);
     else if (lm.type === "kuzguncuk_houses") drawKuzguncukHouses(lx);
     else if (lm.type === "beylerbeyi_stadium") drawBeylerbeyiStadium(lx);
+    else if (lm.type === "windmill") drawWindmill(lx);
+    else if (lm.type === "whitehouse_row") drawWhitehouseRow(lx);
+    else if (lm.type === "olive_grove") drawOliveGrove(lx);
   }
 
   // deniz
@@ -1301,6 +1501,80 @@ function drawFerry(x, y) {
   ctx.fillRect(x + 14, y - 12, 20, 12);
   ctx.fillStyle = "#3a3a3a";
   ctx.fillRect(x + 20, y - 22, 5, 12);
+}
+
+function drawWindmill(x) {
+  const hillTop = GROUND_Y - 40 - 40;
+  ctx.fillStyle = "#c9b98a";
+  ctx.beginPath();
+  ctx.moveTo(x - 70, GROUND_Y - 40);
+  ctx.quadraticCurveTo(x, hillTop - 10, x + 70, GROUND_Y - 40);
+  ctx.closePath();
+  ctx.fill();
+
+  const baseY = hillTop;
+  ctx.fillStyle = "#e8e0cc";
+  ctx.beginPath();
+  ctx.moveTo(x - 16, baseY);
+  ctx.lineTo(x - 10, baseY - 90);
+  ctx.lineTo(x + 10, baseY - 90);
+  ctx.lineTo(x + 16, baseY);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#8a5a3c";
+  ctx.beginPath();
+  ctx.moveTo(x - 14, baseY - 88);
+  ctx.lineTo(x, baseY - 115);
+  ctx.lineTo(x + 14, baseY - 88);
+  ctx.closePath();
+  ctx.fill();
+
+  const spin = performance.now() / 1500;
+  ctx.strokeStyle = "#5a4a3a";
+  ctx.lineWidth = 3;
+  ctx.save();
+  ctx.translate(x, baseY - 95);
+  ctx.rotate(spin);
+  for (let i = 0; i < 4; i++) {
+    ctx.rotate(Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -34);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(230,220,200,0.7)";
+    ctx.fillRect(-6, -34, 12, 20);
+  }
+  ctx.restore();
+}
+
+function drawWhitehouseRow(x) {
+  const baseY = GROUND_Y - 40;
+  for (let i = -2; i <= 1; i++) {
+    const bx = x + i * 36;
+    ctx.fillStyle = "#f2ede0";
+    ctx.fillRect(bx - 16, baseY - 60, 32, 60);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(bx - 18, baseY - 64, 36, 8);
+    ctx.fillStyle = "#2f6fa0";
+    ctx.fillRect(bx - 11, baseY - 46, 8, 12);
+    ctx.fillRect(bx + 3, baseY - 46, 8, 12);
+    ctx.fillRect(bx - 6, baseY - 20, 12, 20);
+  }
+}
+
+function drawOliveGrove(x) {
+  const baseY = GROUND_Y - 40;
+  for (let i = -2; i <= 2; i++) {
+    const tx = x + i * 26;
+    const ty = baseY - 6 - Math.abs(i) * 3;
+    ctx.fillStyle = "#6b5a3a";
+    ctx.fillRect(tx - 2, ty - 14, 4, 14);
+    ctx.fillStyle = "#7a9a5a";
+    ctx.beginPath();
+    ctx.arc(tx, ty - 18, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawCamlicaTower(x) {
@@ -2084,7 +2358,51 @@ function drawFoodNotify() {
   ctx.restore();
 }
 
+function drawSunglassesGuy(en) {
+  const x = en.x - camX;
+  if (x + en.w < 0 || x > W) return;
+  const bob = Math.sin(en.walkT * 10) * 2;
+  const shirtColors = ["#e0764a", "#4aa0c9", "#e0c94a", "#5fae6a"];
+  const shirt = shirtColors[Math.abs(Math.floor(en.x1 / 90)) % shirtColors.length];
+
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(x + en.w / 2, en.y + en.h + 2, en.w * 0.5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // laf atan biriyse hafif parıltı
+  if (en.taunts) {
+    ctx.fillStyle = "rgba(255,220,120,0.35)";
+    ctx.beginPath();
+    ctx.arc(x + en.w / 2, en.y + 6 + bob, 13, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // şort
+  ctx.fillStyle = "#e8d9a0";
+  ctx.fillRect(x + 4, en.y + 18 + bob, en.w - 8, en.h - 18);
+  // hawaii gömlek
+  ctx.fillStyle = shirt;
+  ctx.fillRect(x + 2, en.y + 8 + bob, en.w - 4, 14);
+  ctx.fillStyle = "rgba(255,255,255,0.45)";
+  ctx.beginPath();
+  ctx.arc(x + en.w / 2 - 3, en.y + 13 + bob, 2, 0, Math.PI * 2);
+  ctx.arc(x + en.w / 2 + 4, en.y + 16 + bob, 2, 0, Math.PI * 2);
+  ctx.fill();
+  // kafa
+  ctx.fillStyle = "#e0ac69";
+  ctx.beginPath();
+  ctx.arc(x + en.w / 2, en.y + 6 + bob, 8, 0, Math.PI * 2);
+  ctx.fill();
+  // güneş gözlüğü
+  ctx.fillStyle = "#111";
+  ctx.fillRect(x + en.w / 2 - 6, en.y + 4 + bob, 12, 4);
+  ctx.fillStyle = "#333";
+  ctx.fillRect(x + en.w / 2 - 1, en.y + 5 + bob, 2, 2);
+}
+
 function drawEnemy(en) {
+  if (currentLevel === 2) { drawSunglassesGuy(en); return; }
   const x = en.x - camX;
   if (x + en.w < 0 || x > W) return;
   const bob = Math.sin(en.walkT * 10) * 2;
@@ -2319,6 +2637,31 @@ function drawHeartsLayer() {
   }
 }
 
+function drawLafLayer() {
+  ctx.textAlign = "center";
+  for (const l of laf) {
+    const x = l.x - camX;
+    if (x < -50 || x > W + 50) continue;
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 2;
+    roundRect(x - l.w / 2, l.y - l.h / 2, l.w, l.h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 6, l.y + l.h / 2 - 1);
+    ctx.lineTo(x + 2, l.y + l.h / 2 + 9);
+    ctx.lineTo(x + 8, l.y + l.h / 2 - 1);
+    ctx.closePath();
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#c0392b";
+    ctx.font = "bold 12px Trebuchet MS";
+    ctx.fillText("LAF", x, l.y + 4);
+  }
+}
+
 function drawSpidermanCameo() {
   const x = spiderman.x - camX;
   if (x < -100 || x > W + 100) return;
@@ -2443,6 +2786,65 @@ function drawManGreeter(x) {
   ctx.beginPath();
   ctx.ellipse(headCX + 8, headCY - 1, 6, 2.4, 0, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawGoal2() {
+  const gx = GOAL_X - 60 - camX;
+  const baseY = GROUND_Y - 4;
+
+  // taş temel
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(gx + 45, baseY + 4, 60, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // fener kulesi (beyaz-kırmızı çizgili)
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(gx + 20, baseY - 160, 50, 156);
+  ctx.fillStyle = "#c0392b";
+  for (let i = 0; i < 4; i++) ctx.fillRect(gx + 20, baseY - 150 + i * 36, 50, 14);
+
+  // fener kısmı
+  ctx.fillStyle = "#333";
+  ctx.fillRect(gx + 16, baseY - 176, 58, 18);
+  ctx.fillStyle = "rgba(255,240,150,0.7)";
+  ctx.beginPath();
+  ctx.arc(gx + 45, baseY - 167, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.moveTo(gx + 16, baseY - 176);
+  ctx.lineTo(gx + 45, baseY - 196);
+  ctx.lineTo(gx + 74, baseY - 176);
+  ctx.closePath();
+  ctx.fill();
+
+  // bayrak direği + Türk bayrağı
+  ctx.fillStyle = "#999";
+  ctx.fillRect(gx + 88, baseY - 220, 3, 220);
+  const flagY = gameState === "win" ? Math.max(baseY - 220, baseY - 40 - winTimer * 120) : baseY - 216;
+  ctx.fillStyle = "#e30a17";
+  ctx.beginPath();
+  ctx.moveTo(gx + 91, flagY);
+  ctx.lineTo(gx + 123, flagY + 8);
+  ctx.lineTo(gx + 91, flagY + 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(gx + 101, flagY + 8, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // etiket
+  ctx.fillStyle = "#0033a0";
+  ctx.fillRect(gx - 15, baseY - 236, 130, 22);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(gx - 15, baseY - 236, 130, 22);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText("CUNDA FENERİ", gx + 50, baseY - 220);
 }
 
 function drawGoal() {
@@ -3169,10 +3571,15 @@ function draw() {
   for (const en of enemies) if (!en.dead) drawEnemy(en);
   for (const en of flyingEnemies) if (!en.dead) drawFlyingEnemy(en);
   for (const it of items) drawItem(it);
-  drawGoal();
-  drawManGreeter(manX - camX);
-  drawHeartsLayer();
-  if (spiderman.phase !== "idle" && spiderman.phase !== "done") drawSpidermanCameo();
+  if (currentLevel === 1) {
+    drawGoal();
+    drawManGreeter(manX - camX);
+    drawHeartsLayer();
+    if (spiderman.phase !== "idle" && spiderman.phase !== "done") drawSpidermanCameo();
+  } else {
+    drawGoal2();
+    drawLafLayer();
+  }
   if (player.riding) {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
   }
@@ -3180,10 +3587,12 @@ function draw() {
   drawParticlesLayer();
   drawComboPopupsLayer();
 
-  if (dialogueState === "line1") {
-    drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "NEDEN LOVEBOMBING YAPIYORSUN?");
-  } else if (dialogueState === "line2") {
-    drawSpeechBubble(manX - camX, GROUND_Y - 88, "YAPMIYORUM?");
+  if (currentLevel === 1) {
+    if (dialogueState === "line1") {
+      drawSpeechBubble(player.x - camX + player.w / 2, player.y - 4, "NEDEN LOVEBOMBING YAPIYORSUN?");
+    } else if (dialogueState === "line2") {
+      drawSpeechBubble(manX - camX, GROUND_Y - 88, "YAPMIYORUM?");
+    }
   }
 
   ctx.restore();
@@ -3203,7 +3612,8 @@ function loop(t) {
     winTimer += dt;
     if (winTimer > 2.4) {
       gameState = "menu";
-      showWinStep1();
+      if (currentLevel === 1) showWinStep1();
+      else showFinalWin();
     }
   }
 
@@ -3213,3 +3623,12 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+// Test kısayolu: adrese ?level2=1 eklenirse doğrudan 2. bölümle
+// (Ayvalık ve Cunda) başlar.
+if (new URLSearchParams(window.location.search).get("level2") === "1") {
+  ensureAudio();
+  score = 0; lives = 3;
+  switchToLevel2();
+  bgMusic.play().catch(() => {});
+}
