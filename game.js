@@ -439,6 +439,7 @@ function switchToLevel2() {
   rita10.used = false;
   ritaPromptActive = false;
   loveBomber.phase = "idle"; loveBomber.t = 0;
+  lastGiftType = null;
   items = [];
   foodNotify = null;
 
@@ -450,9 +451,16 @@ function switchToLevel2() {
   camX = 0;
   winTimer = 0;
   dialogueState = "none"; endingPhase = "none"; hearts = [];
-  gameState = "playing";
+  gameState = "outfitchoice";
   updateHud();
-  overlay.classList.add("hidden");
+  showOutfitChoice();
+}
+
+function restartLevel2() {
+  ensureAudio();
+  score = 0; lives = 3;
+  switchToLevel2();
+  tryPlayMusic(bgMusic);
 }
 
 // ---------- Oyuncu ----------
@@ -683,6 +691,8 @@ let simitCount = 0;
 let bonusRoom = null;
 let ritaPromptActive = false;
 let ritaFlashT = 0;
+let lastGiftType = null;
+let playerOutfit2 = "yazlik"; // yazlik | erkekxs
 const RITA_FLASH_BRIGHTEN = 2.2;
 const RITA_FLASH_TOTAL = 3.6;
 
@@ -870,7 +880,7 @@ function loseLife() {
     setOverlay({
       title: "KAYBETTİN",
       text: "Sahil senden zorluymuş. Tekrar dene!",
-      buttons: [{ label: "TEKRAR DENE", onClick: startGame }],
+      buttons: [{ label: "TEKRAR DENE", onClick: currentLevel === 2 ? restartLevel2 : startGame }],
     });
   } else {
     respawnPlayer();
@@ -923,6 +933,24 @@ function showFinalWin() {
     text: "Ayvalık ve Cunda'yı da bitirdin! Oyun tamamlandı 🎉<br/>Skor: " + score,
     buttons: [{ label: "TEKRAR OYNA", onClick: startGame }],
   });
+}
+
+function showOutfitChoice() {
+  setOverlay({
+    title: "",
+    text: "HANGİ KIYAFETİ HİTMEK İSTERSİN?",
+    marioFont: true,
+    buttons: [
+      { label: "YAZLIK", onClick: () => chooseOutfit("yazlik") },
+      { label: "ERKEK XS", onClick: () => chooseOutfit("erkekxs") },
+    ],
+  });
+}
+
+function chooseOutfit(type) {
+  playerOutfit2 = type;
+  gameState = "playing";
+  overlay.classList.add("hidden");
 }
 
 function declineRita() {
@@ -1020,6 +1048,8 @@ titleP1Btn.addEventListener("click", () => {
 // ---------- Güncelleme ----------
 let lastTime = performance.now();
 function update(dt) {
+  if (gameState === "outfitchoice") return;
+
   if (gameState === "ritaflash") {
     ritaFlashT += dt;
     if (ritaFlashT > RITA_FLASH_TOTAL) {
@@ -1274,7 +1304,9 @@ function update(dt) {
         b.used = true;
         player.vy = 40;
         if (currentLevel === 2) {
-          const gift = GIFT_TYPES[Math.floor(Math.random() * GIFT_TYPES.length)];
+          const giftPool = GIFT_TYPES.filter(g => g !== lastGiftType);
+          const gift = giftPool[Math.floor(Math.random() * giftPool.length)];
+          lastGiftType = gift;
           items.push({ x: b.x + b.w / 2 - 14, y: b.y - 36, w: 28, h: 34, vx: 90, vy: -220, phase: "pop", gift });
         } else {
           const food = FOOD_TYPES[Math.floor(Math.random() * FOOD_TYPES.length)];
@@ -3125,47 +3157,48 @@ function drawManGreeter(x) {
 }
 
 function drawTallCharismaticGuy(x, baseY) {
-  const y = baseY - 100;
+  // Şapkalı adamla (drawManGreeter) aynı/ondan kısa boyda tutulur.
+  const y = baseY - 80;
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath();
-  ctx.ellipse(x, baseY + 2, 17, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, baseY + 2, 14, 4, 0, 0, Math.PI * 2);
   ctx.fill();
   // bacaklar (koyu pantolon)
   ctx.fillStyle = "#141420";
-  ctx.fillRect(x - 8, y + 68, 6, 26);
-  ctx.fillRect(x + 2, y + 68, 6, 26);
+  ctx.fillRect(x - 6, y + 54, 5, 21);
+  ctx.fillRect(x + 1, y + 54, 5, 21);
   ctx.fillStyle = "#000";
-  ctx.fillRect(x - 9, y + 92, 8, 5);
-  ctx.fillRect(x + 1, y + 92, 8, 5);
+  ctx.fillRect(x - 7, y + 74, 7, 4);
+  ctx.fillRect(x, y + 74, 7, 4);
   // gövde (koyu ceket, beyaz gömlek şeridi)
   ctx.fillStyle = "#22222e";
-  ctx.fillRect(x - 14, y + 22, 28, 48);
+  ctx.fillRect(x - 11, y + 18, 22, 38);
   ctx.fillStyle = "#fff";
-  ctx.fillRect(x - 2, y + 22, 4, 48);
+  ctx.fillRect(x - 2, y + 18, 4, 38);
   // kollar
   ctx.fillStyle = "#22222e";
-  ctx.fillRect(x - 19, y + 26, 5, 34);
-  ctx.fillRect(x + 14, y + 26, 5, 34);
+  ctx.fillRect(x - 15, y + 21, 5, 27);
+  ctx.fillRect(x + 11, y + 21, 5, 27);
   ctx.fillStyle = "#e0ac69";
-  ctx.fillRect(x - 19, y + 58, 5, 6);
-  ctx.fillRect(x + 14, y + 58, 5, 6);
+  ctx.fillRect(x - 15, y + 46, 5, 5);
+  ctx.fillRect(x + 11, y + 46, 5, 5);
   // kafa
-  const headCX = x, headCY = y + 10;
+  const headCX = x, headCY = y + 8;
   ctx.fillStyle = "#e0ac69";
   ctx.beginPath();
-  ctx.arc(headCX, headCY, 12, 0, Math.PI * 2);
+  ctx.arc(headCX, headCY, 9.6, 0, Math.PI * 2);
   ctx.fill();
   // jöleli saç
   ctx.fillStyle = "#0c0c0c";
   ctx.beginPath();
-  ctx.arc(headCX, headCY - 3, 12.5, Math.PI, 2 * Math.PI);
+  ctx.arc(headCX, headCY - 2, 10, Math.PI, 2 * Math.PI);
   ctx.fill();
-  ctx.fillRect(headCX - 12, headCY - 3, 24, 5);
+  ctx.fillRect(headCX - 9.5, headCY - 2, 19, 4);
   // güneş gözlüğü
   ctx.fillStyle = "#0c0c0c";
-  ctx.fillRect(headCX - 9, headCY - 1, 18, 5);
+  ctx.fillRect(headCX - 7, headCY - 1, 14, 4);
   ctx.fillStyle = "#333";
-  ctx.fillRect(headCX - 2, headCY, 4, 2);
+  ctx.fillRect(headCX - 1.5, headCY, 3, 1.6);
 }
 
 function drawLoveBomberCameo() {
@@ -3173,12 +3206,13 @@ function drawLoveBomberCameo() {
   if (x < -120 || x > W + 120) return;
   if (loveBomber.phase === "talking") {
     drawTallCharismaticGuy(x, GROUND_Y);
-    drawSpeechBubble(x, GROUND_Y - 108, "BEN SANA LOVEBOMBING YAPMAYA GELDİM");
+    drawSpeechBubble(x, GROUND_Y - 92, "BEN SANA LOVEBOMBING YAPMAYA GELDİM");
   } else if (loveBomber.phase === "rescue") {
     const t = Math.min(1, loveBomber.t / 1.8);
     const dragX = x + t * 260;
     drawTallCharismaticGuy(dragX, GROUND_Y);
     drawManGreeter(dragX - 30);
+    drawSpeechBubble(dragX - 30, GROUND_Y - 92, "SENİN KOLUNU BACAĞINI KIRARIM İBİNE");
   }
 }
 
@@ -3421,10 +3455,12 @@ function drawPlayer() {
   ctx.translate(-w / 2, 0);
 
   // seviye 2'de (Ayvalık/Cunda) yazlık kıyafet: şort + askılı tişört
+  // ya da "ERKEK XS" seçilmişse bol, dizlere kadar gelen kırmızı NBA tişörtü
   const isSummer = currentLevel === 2;
-  const legColor = isSummer ? "#4a7fb5" : "#1b2a4a";
-  const bodyColor = isSummer ? "#2fb5a0" : "#c0392b";
-  const armColor = isSummer ? "#e0ac69" : "#c0392b";
+  const isErkekXS = currentLevel === 2 && playerOutfit2 === "erkekxs";
+  const legColor = isErkekXS ? "#c0392b" : (isSummer ? "#4a7fb5" : "#1b2a4a");
+  const bodyColor = isErkekXS ? "#d0221e" : (isSummer ? "#2fb5a0" : "#c0392b");
+  const armColor = isErkekXS ? "#d0221e" : (isSummer ? "#e0ac69" : "#c0392b");
 
   const hipY = y + h - legH;
   const legW = w * 0.32;
@@ -3433,10 +3469,24 @@ function drawPlayer() {
 
   // gövde (eşofman ya da yazlık tişört) - beyaz şerit
   const bodyY = y + h - legH - bodyH;
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(0, bodyY, w, bodyH);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, bodyY + bodyH * 0.4, w, 4);
+  if (isErkekXS) {
+    const shirtW = w * 1.55;
+    const shirtX = (w - shirtW) / 2;
+    const shirtTop = bodyY - h * 0.06;
+    const shirtH = bodyH + legH * 0.75;
+    ctx.fillStyle = bodyColor;
+    roundRect(shirtX, shirtTop, shirtW, shirtH, 4);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = `bold ${Math.max(6, Math.round(w * 0.24))}px Trebuchet MS`;
+    ctx.fillText("NBA", w / 2, shirtTop + shirtH * 0.42);
+  } else {
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(0, bodyY, w, bodyH);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, bodyY + bodyH * 0.4, w, 4);
+  }
 
   const shoulderY = bodyY + 4;
   const armLen = bodyH * 0.62, armW = w * 0.22;
