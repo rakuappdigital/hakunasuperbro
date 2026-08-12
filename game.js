@@ -248,8 +248,9 @@ const LEVEL1_BACKUP = {
 };
 
 // ---------- Seviye 2: Ayvalık ve Cunda ----------
-const LEVEL2_END = 8500;
-const GOAL2_X = 8300;
+// (orijinal 8500/8300 değerlerinin %40 uzatılmış hali)
+const LEVEL2_END = 11900;
+const GOAL2_X = 11620;
 
 const groundSegs2 = [];
 {
@@ -369,6 +370,15 @@ for (const seg of groundSegs2) {
   });
 }
 
+// RITA 10: seviye 2'nin başında, erişilebilir bir platformun üstünde
+const rita10 = (() => {
+  const p = platforms2.find(pp => pp.x < LEVEL2_END * 0.15) || platforms2[0];
+  return { x: p.x + p.w / 2 - 8, y: p.y - 22, w: 16, h: 16, used: false };
+})();
+
+// Lovebombing kamesi: oyunun ortalarında beliren uzun boylu karizmatik düşman
+const loveBomber = { x: nearestXInSegs(groundSegs2, LEVEL2_END * 0.44), phase: "idle", t: 0 };
+
 const landmarks2 = [
   { x: LEVEL2_END * 0.10, type: "windmill" },
   { x: LEVEL2_END * 0.25, type: "whitehouse_row" },
@@ -426,6 +436,9 @@ function switchToLevel2() {
   coins2.forEach(c => c.collected = false);
   checkpoints2.forEach(c => { c.reached = false; c.pop = 0; });
   platforms2.forEach(p => p.broken = false);
+  rita10.used = false;
+  ritaPromptActive = false;
+  loveBomber.phase = "idle"; loveBomber.t = 0;
   items = [];
   foodNotify = null;
 
@@ -668,6 +681,10 @@ let prevGameState = "playing";
 let downHeld = false;
 let simitCount = 0;
 let bonusRoom = null;
+let ritaPromptActive = false;
+let ritaFlashT = 0;
+const RITA_FLASH_BRIGHTEN = 2.2;
+const RITA_FLASH_TOTAL = 3.6;
 
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlay-title");
@@ -908,6 +925,18 @@ function showFinalWin() {
   });
 }
 
+function declineRita() {
+  ritaPromptActive = false;
+  overlay.classList.add("hidden");
+}
+
+function acceptRita() {
+  ritaPromptActive = false;
+  overlay.classList.add("hidden");
+  gameState = "ritaflash";
+  ritaFlashT = 0;
+}
+
 const bgMusic = new Audio("mario.mp3");
 bgMusic.loop = true;
 const pipeMusic = new Audio("mariooo.mp3");
@@ -977,6 +1006,15 @@ titleP1Btn.addEventListener("click", () => {
 // ---------- Güncelleme ----------
 let lastTime = performance.now();
 function update(dt) {
+  if (gameState === "ritaflash") {
+    ritaFlashT += dt;
+    if (ritaFlashT > RITA_FLASH_TOTAL) {
+      gameState = "menu";
+      showFinalWin();
+    }
+    return;
+  }
+
   if (gameState === "phonecutscene") {
     phoneAnimT += dt;
     if (phonePhase === "recording") {
@@ -1151,7 +1189,8 @@ function update(dt) {
   }
   const dialogueFreeze = dialogueState === "line1" || dialogueState === "line2";
   const spidermanFreeze = spiderman.phase !== "idle" && spiderman.phase !== "done";
-  const freeze = dialogueFreeze || spidermanFreeze;
+  const loveBomberFreeze = loveBomber.phase === "talking" || loveBomber.phase === "rescue";
+  const freeze = dialogueFreeze || spidermanFreeze || loveBomberFreeze || ritaPromptActive;
 
   const down = !freeze && (keys["ArrowDown"] || keys["KeyS"]);
   const left = !freeze && !player.crouching && (keys["ArrowLeft"] || keys["KeyA"] || touchLeft);
@@ -1292,6 +1331,35 @@ function update(dt) {
   } else if (spiderman.phase === "up") {
     spiderman.t += dt;
     if (spiderman.t > 1) spiderman.phase = "done";
+  }
+
+  // Lovebombing kamesi (seviye 2)
+  if (currentLevel === 2 && loveBomber.phase === "idle" && player.x < loveBomber.x && loveBomber.x - player.x < 220) {
+    loveBomber.phase = "talking";
+    loveBomber.t = 0;
+  }
+  if (loveBomber.phase === "talking") {
+    loveBomber.t += dt;
+    if (loveBomber.t > 2.6) { loveBomber.phase = "rescue"; loveBomber.t = 0; }
+  } else if (loveBomber.phase === "rescue") {
+    loveBomber.t += dt;
+    if (loveBomber.t > 1.8) loveBomber.phase = "done";
+  }
+
+  // RITA 10 hapı (seviye 2)
+  if (currentLevel === 2 && !rita10.used && rectsOverlap(playerRect(), rita10)) {
+    rita10.used = true;
+    ritaPromptActive = true;
+    playCollectSound();
+    setOverlay({
+      title: "RITA 10",
+      text: "İSTERSEN OYUNU HEMEN BİTİREBİLİRSİN",
+      marioFont: true,
+      buttons: [
+        { label: "EVET", onClick: acceptRita },
+        { label: "HAYIR", onClick: declineRita, danger: true },
+      ],
+    });
   }
 
   // Motosiklete binme
@@ -3042,6 +3110,96 @@ function drawManGreeter(x) {
   ctx.fill();
 }
 
+function drawTallCharismaticGuy(x, baseY) {
+  const y = baseY - 100;
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(x, baseY + 2, 17, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // bacaklar (koyu pantolon)
+  ctx.fillStyle = "#141420";
+  ctx.fillRect(x - 8, y + 68, 6, 26);
+  ctx.fillRect(x + 2, y + 68, 6, 26);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x - 9, y + 92, 8, 5);
+  ctx.fillRect(x + 1, y + 92, 8, 5);
+  // gövde (koyu ceket, beyaz gömlek şeridi)
+  ctx.fillStyle = "#22222e";
+  ctx.fillRect(x - 14, y + 22, 28, 48);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x - 2, y + 22, 4, 48);
+  // kollar
+  ctx.fillStyle = "#22222e";
+  ctx.fillRect(x - 19, y + 26, 5, 34);
+  ctx.fillRect(x + 14, y + 26, 5, 34);
+  ctx.fillStyle = "#e0ac69";
+  ctx.fillRect(x - 19, y + 58, 5, 6);
+  ctx.fillRect(x + 14, y + 58, 5, 6);
+  // kafa
+  const headCX = x, headCY = y + 10;
+  ctx.fillStyle = "#e0ac69";
+  ctx.beginPath();
+  ctx.arc(headCX, headCY, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // jöleli saç
+  ctx.fillStyle = "#0c0c0c";
+  ctx.beginPath();
+  ctx.arc(headCX, headCY - 3, 12.5, Math.PI, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillRect(headCX - 12, headCY - 3, 24, 5);
+  // güneş gözlüğü
+  ctx.fillStyle = "#0c0c0c";
+  ctx.fillRect(headCX - 9, headCY - 1, 18, 5);
+  ctx.fillStyle = "#333";
+  ctx.fillRect(headCX - 2, headCY, 4, 2);
+}
+
+function drawLoveBomberCameo() {
+  const x = loveBomber.x - camX;
+  if (x < -120 || x > W + 120) return;
+  if (loveBomber.phase === "talking") {
+    drawTallCharismaticGuy(x, GROUND_Y);
+    drawSpeechBubble(x, GROUND_Y - 108, "BEN SANA LOVEBOMBING YAPMAYA GELDİM");
+  } else if (loveBomber.phase === "rescue") {
+    const t = Math.min(1, loveBomber.t / 1.8);
+    const dragX = x + t * 260;
+    drawTallCharismaticGuy(dragX, GROUND_Y);
+    drawManGreeter(dragX - 30);
+  }
+}
+
+function drawRita10() {
+  if (rita10.used) return;
+  const x = rita10.x - camX;
+  if (x < -40 || x > W + 40) return;
+  const cx = x + rita10.w / 2, cy = rita10.y + rita10.h / 2 + Math.sin(performance.now() / 300) * 3;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath();
+  ctx.ellipse(0, rita10.h / 2 + 4, rita10.w / 2, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f7f7f7";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rita10.w / 2, rita10.h / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ccc";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-rita10.w / 2 + 2, 0);
+  ctx.lineTo(rita10.w / 2 - 2, 0);
+  ctx.stroke();
+  ctx.fillStyle = "#999";
+  ctx.font = '5px "Press Start 2P", monospace';
+  ctx.textAlign = "center";
+  ctx.fillText("10", 0, rita10.h / 2 + 4);
+  ctx.restore();
+  if (Math.abs(player.x - rita10.x) < 200) {
+    drawHint(x + rita10.w / 2, rita10.y - 8, "RITA 10");
+  }
+}
+
 function drawGoal2() {
   const gx = GOAL_X - 60 - camX;
   const baseY = GROUND_Y - 4;
@@ -4140,6 +4298,8 @@ function draw() {
   } else {
     drawGoal2();
     drawLafLayer();
+    drawRita10();
+    if (loveBomber.phase !== "idle" && loveBomber.phase !== "done") drawLoveBomberCameo();
   }
   if (player.riding) {
     drawMotoIcon(player.x - camX + player.w / 2, player.y + player.h - 4, 1.05);
@@ -4162,6 +4322,18 @@ function draw() {
   drawBonusNotify();
 
   if (gameState === "phonecutscene") drawPhoneCutscene();
+
+  if (gameState === "ritaflash") {
+    const alpha = Math.min(1, ritaFlashT / RITA_FLASH_BRIGHTEN);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(0, 0, W, H);
+    if (ritaFlashT > RITA_FLASH_BRIGHTEN) {
+      ctx.fillStyle = "#111";
+      ctx.textAlign = "center";
+      ctx.font = 'bold 46px "Press Start 2P", monospace';
+      ctx.fillText("MEGA", W / 2, H / 2 + 16);
+    }
+  }
 }
 
 // ---------- Ana döngü ----------
